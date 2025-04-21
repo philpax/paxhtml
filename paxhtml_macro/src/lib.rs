@@ -8,9 +8,12 @@ use syn::{
 };
 
 // Represents an HTML attribute
-struct HtmlAttribute {
-    name: String,
-    value: Option<Box<Expr>>,
+enum HtmlAttribute {
+    Named {
+        name: String,
+        value: Option<Box<Expr>>,
+    },
+    Interpolated(Box<Expr>),
 }
 
 // Represents an HTML node (either element or text)
@@ -39,32 +42,41 @@ mod kw {
 // Implement parsing for attributes
 impl Parse for HtmlAttribute {
     fn parse(input: ParseStream) -> Result<Self> {
-        let name = input.parse::<Ident>()?.to_string();
-        let name = name
-            .strip_prefix("r#")
-            .unwrap_or(&name)
-            .to_case(convert_case::Case::Kebab);
-
-        // Handle valueless attributes
-        if input.peek(Token![=]) {
-            input.parse::<Token![=]>()?;
-
-            let value = if input.peek(token::Brace) {
-                // Parse Rust expression in braces
-                let content;
-                syn::braced!(content in input);
-                Some(Box::new(content.parse::<Expr>()?))
-            } else {
-                // Parse string literal
-                Some(Box::new(Expr::Lit(syn::ExprLit {
-                    attrs: vec![],
-                    lit: syn::Lit::Str(input.parse::<LitStr>()?),
-                })))
-            };
-
-            Ok(HtmlAttribute { name, value })
+        if input.peek(token::Brace) {
+            // Parse interpolated attribute
+            let content;
+            syn::braced!(content in input);
+            Ok(HtmlAttribute::Interpolated(Box::new(
+                content.parse::<Expr>()?,
+            )))
         } else {
-            Ok(HtmlAttribute { name, value: None })
+            let name = input.parse::<Ident>()?.to_string();
+            let name = name
+                .strip_prefix("r#")
+                .unwrap_or(&name)
+                .to_case(convert_case::Case::Kebab);
+
+            // Handle valueless attributes
+            if input.peek(Token![=]) {
+                input.parse::<Token![=]>()?;
+
+                let value = if input.peek(token::Brace) {
+                    // Parse Rust expression in braces
+                    let content;
+                    syn::braced!(content in input);
+                    Some(Box::new(content.parse::<Expr>()?))
+                } else {
+                    // Parse string literal
+                    Some(Box::new(Expr::Lit(syn::ExprLit {
+                        attrs: vec![],
+                        lit: syn::Lit::Str(input.parse::<LitStr>()?),
+                    })))
+                };
+
+                Ok(HtmlAttribute::Named { name, value })
+            } else {
+                Ok(HtmlAttribute::Named { name, value: None })
+            }
         }
     }
 }
@@ -210,24 +222,33 @@ impl ToTokens for HtmlNode {
                 children,
                 void,
             } => {
-                let attrs = attributes
-                    .iter()
-                    .map(|attr| {
-                        let name = &attr.name;
-                        match &attr.value {
-                            Some(value) => quote! {
-                                paxhtml::attr((#name.to_string(), #value.to_string()))
-                            },
-                            None => quote! {
-                                paxhtml::attr(#name.to_string())
-                            },
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                let attrs = if attrs.is_empty() {
+                let attrs = if attributes.is_empty() {
                     quote! { vec![] }
                 } else {
-                    quote! { [#(#attrs),*] }
+                    let mut attr_tokens = Vec::new();
+                    for attr in attributes {
+                        match attr {
+                            HtmlAttribute::Named { name, value } => {
+                                let attr_token = match value {
+                                    Some(value) => quote! {
+                                        paxhtml::attr((#name.to_string(), #value.to_string()))
+                                    },
+                                    None => quote! {
+                                        paxhtml::attr(#name.to_string())
+                                    },
+                                };
+                                attr_tokens.push(quote! { attrs.push(#attr_token); });
+                            }
+                            HtmlAttribute::Interpolated(expr) => {
+                                attr_tokens.push(quote! { attrs.extend(#expr); });
+                            }
+                        }
+                    }
+                    quote! {{
+                        let mut attrs = Vec::new();
+                        #(#attr_tokens)*
+                        attrs
+                    }}
                 };
 
                 let children = if children.is_empty() {
