@@ -9,7 +9,7 @@ pub mod builder;
 pub mod util;
 
 mod attribute;
-pub use attribute::{attr, Attribute};
+pub use attribute::{attr, Attribute, AttributeParseError};
 
 mod document;
 pub use document::Document;
