@@ -166,6 +166,16 @@ impl Attribute {
     /// The error will contain detailed information about what caused the parsing failure,
     /// including the position of the error and the context of what was being parsed.
     pub fn parse_from_str(s: &str) -> Result<Vec<Self>, AttributeParseError> {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum ParseState {
+            BeforeAttribute,
+            InName,
+            BeforeEquals,
+            AfterEquals,
+            InQuotedValue,
+            InUnquotedValue,
+        }
+
         let mut attributes = Vec::new();
         let mut chars = s.chars().enumerate().peekable();
         let mut current_key = String::new();
@@ -173,64 +183,141 @@ impl Attribute {
         let mut in_quotes = false;
         let mut quote_char = None;
         let mut quote_start_pos = 0;
+        let mut state = ParseState::BeforeAttribute;
 
         while let Some((pos, c)) = chars.next() {
-            match c {
-                ' ' | '\t' | '\n' if !in_quotes => {
-                    if !current_key.is_empty() {
+            match state {
+                ParseState::BeforeAttribute => {
+                    match c {
+                        ' ' | '\t' | '\n' => continue, // Skip whitespace between attributes
+                        '=' => {
+                            return Err(AttributeParseError::InvalidSyntax {
+                                unexpected: c,
+                                position: pos,
+                                context: ParseContext::ExpectedAttributeName,
+                            })
+                        }
+                        _ => {
+                            current_key.push(c);
+                            state = ParseState::InName;
+                        }
+                    }
+                }
+                ParseState::InName => {
+                    match c {
+                        ' ' | '\t' | '\n' => {
+                            // Look ahead to see if there's an equals sign
+                            let mut temp_iter = chars.clone();
+                            let mut found_equals = false;
+                            while let Some((_, next_c)) = temp_iter.next() {
+                                if next_c == '=' {
+                                    found_equals = true;
+                                    break;
+                                }
+                                if !next_c.is_whitespace() {
+                                    break;
+                                }
+                            }
+                            if found_equals {
+                                state = ParseState::BeforeEquals;
+                            } else {
+                                // This is a boolean attribute
+                                attributes.push(Attribute {
+                                    key: current_key.clone(),
+                                    value: None,
+                                });
+                                current_key.clear();
+                                state = ParseState::BeforeAttribute;
+                            }
+                        }
+                        '=' => {
+                            state = ParseState::AfterEquals;
+                            current_value = Some(String::new());
+                        }
+                        _ => current_key.push(c),
+                    }
+                }
+                ParseState::BeforeEquals => {
+                    match c {
+                        ' ' | '\t' | '\n' => continue, // Skip whitespace before equals
+                        '=' => {
+                            state = ParseState::AfterEquals;
+                            current_value = Some(String::new());
+                        }
+                        _ => {
+                            return Err(AttributeParseError::InvalidSyntax {
+                                unexpected: c,
+                                position: pos,
+                                context: ParseContext::ExpectedAttributeValue,
+                            })
+                        }
+                    }
+                }
+                ParseState::AfterEquals => {
+                    match c {
+                        ' ' | '\t' | '\n' => continue, // Skip whitespace after equals
+                        '"' | '\'' => {
+                            quote_char = Some(c);
+                            quote_start_pos = pos;
+                            in_quotes = true;
+                            state = ParseState::InQuotedValue;
+                        }
+                        _ => {
+                            if let Some(ref mut value) = current_value {
+                                if !c.is_alphanumeric() && c != '-' && c != '_' {
+                                    return Err(AttributeParseError::InvalidSyntax {
+                                        unexpected: c,
+                                        position: pos,
+                                        context: ParseContext::ExpectedQuoteOrValue,
+                                    });
+                                }
+                                value.push(c);
+                                state = ParseState::InUnquotedValue;
+                            }
+                        }
+                    }
+                }
+                ParseState::InQuotedValue => {
+                    if Some(c) == quote_char {
+                        in_quotes = false;
                         attributes.push(Attribute {
                             key: current_key.clone(),
                             value: current_value.take(),
                         });
                         current_key.clear();
-                    }
-                }
-                '=' if !in_quotes => {
-                    if current_key.is_empty() {
-                        return Err(AttributeParseError::InvalidSyntax {
-                            unexpected: '=',
-                            position: pos,
-                            context: ParseContext::ExpectedAttributeName,
-                        });
-                    }
-                    current_value = Some(String::new());
-                }
-                '"' | '\'' if !in_quotes && current_value.is_some() => {
-                    in_quotes = true;
-                    quote_char = Some(c);
-                    quote_start_pos = pos;
-                }
-                c if in_quotes => {
-                    if Some(c) == quote_char {
-                        in_quotes = false;
-                        quote_char = None;
-                    } else if let Some(ref mut value) = current_value {
-                        value.push(c);
-                    }
-                }
-                c if !current_key.is_empty() && current_value.is_some() && !in_quotes => {
-                    // For unquoted values, only allow alphanumeric characters, hyphens, and underscores
-                    if !c.is_alphanumeric() && c != '-' && c != '_' {
-                        return Err(AttributeParseError::InvalidSyntax {
-                            unexpected: c,
-                            position: pos,
-                            context: ParseContext::ExpectedQuoteOrValue,
-                        });
-                    }
-                    if let Some(ref mut value) = current_value {
-                        value.push(c);
-                    }
-                }
-                c => {
-                    if let Some(ref mut value) = current_value {
-                        value.push(c);
+                        state = ParseState::BeforeAttribute;
                     } else {
-                        current_key.push(c);
+                        if let Some(ref mut value) = current_value {
+                            value.push(c);
+                        }
                     }
                 }
+                ParseState::InUnquotedValue => match c {
+                    ' ' | '\t' | '\n' => {
+                        attributes.push(Attribute {
+                            key: current_key.clone(),
+                            value: current_value.take(),
+                        });
+                        current_key.clear();
+                        state = ParseState::BeforeAttribute;
+                    }
+                    _ => {
+                        if !c.is_alphanumeric() && c != '-' && c != '_' {
+                            return Err(AttributeParseError::InvalidSyntax {
+                                unexpected: c,
+                                position: pos,
+                                context: ParseContext::ExpectedQuoteOrValue,
+                            });
+                        }
+                        if let Some(ref mut value) = current_value {
+                            value.push(c);
+                        }
+                    }
+                },
             }
         }
 
+        // Handle the last attribute if any
         if in_quotes {
             return Err(AttributeParseError::UnclosedQuote {
                 quote: quote_char.unwrap(),
@@ -249,7 +336,6 @@ impl Attribute {
         Ok(attributes)
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,5 +480,15 @@ mod tests {
             }
             _ => panic!("Expected InvalidSyntax error with context"),
         }
+    }
+
+    #[test]
+    fn test_parse_space_after_key() {
+        let attributes = Attribute::parse_from_str(r#"width ="150" height="80""#).unwrap();
+        assert_eq!(attributes.len(), 2);
+        assert_eq!(attributes[0].key, "width");
+        assert_eq!(attributes[0].value, Some("150".to_string()));
+        assert_eq!(attributes[1].key, "height");
+        assert_eq!(attributes[1].value, Some("80".to_string()));
     }
 }
