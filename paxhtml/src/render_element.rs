@@ -99,27 +99,7 @@ impl RenderElement {
                     return Ok(());
                 }
 
-                let should_indent = !children.is_empty();
-                let mut did_indent = false;
-                let mut encountered_text_element = false;
-                for child in children {
-                    let depth = depth + 1;
-                    encountered_text_element |= matches!(child, Self::Text { .. });
-                    let should_indent_this_child = should_indent
-                        && !encountered_text_element
-                        && !child
-                            .tag()
-                            .is_some_and(|t| ["code", "pre", "sup", "sub"].contains(&t))
-                        && !child.is_raw();
-                    if should_indent_this_child {
-                        writeln!(writer)?;
-                        for _ in 0..depth {
-                            write!(writer, "  ")?;
-                        }
-                        did_indent = true;
-                    }
-                    child.write(writer, depth)?;
-                }
+                let did_indent = Self::write_many(writer, children, depth + 1)?;
 
                 // end tag
                 if did_indent {
@@ -149,18 +129,32 @@ impl RenderElement {
     }
 
     /// Write a list of [`RenderElement`]s to a writer.
+    ///
+    /// Returns whether or not the result was indented.
     pub fn write_many(
         writer: &mut dyn Write,
         elements: &[RenderElement],
         depth: usize,
-    ) -> std::io::Result<()> {
-        for (idx, element) in elements.iter().enumerate() {
-            if idx > 0 {
+    ) -> std::io::Result<bool> {
+        let should_indent = !elements.is_empty();
+        let mut did_indent = false;
+        let mut encountered_text_element = false;
+        for element in elements {
+            encountered_text_element |= matches!(element, Self::Text { .. });
+            let should_indent_this_child = should_indent
+                && !encountered_text_element
+                && !element.is_inline_element()
+                && !element.is_raw();
+            if should_indent_this_child && depth > 0 {
                 writeln!(writer)?;
+                for _ in 0..depth {
+                    write!(writer, "  ")?;
+                }
+                did_indent = true;
             }
             element.write(writer, depth)?;
         }
-        Ok(())
+        Ok(did_indent)
     }
 
     /// Write a list of [`RenderElement`]s to a string.
@@ -178,6 +172,19 @@ impl RenderElement {
         }
     }
 
+    /// Returns `true` if the element-with-tag is an inline element.
+    pub fn is_inline_element(&self) -> bool {
+        self.tag().is_some_and(|t| {
+            [
+                "a", "abbr", "acronym", "b", "bdo", "big", "br", "button", "cite", "code", "dfn",
+                "em", "i", "img", "input", "kbd", "label", "map", "object", "output", "q", "samp",
+                "script", "select", "small", "span", "strong", "sub", "sup", "textarea", "time",
+                "tt", "var",
+            ]
+            .contains(&t)
+        })
+    }
+
     /// Returns `true` if the element is [`Raw`].
     ///
     /// [`Raw`]: RenderElement::Raw
@@ -190,7 +197,7 @@ impl RenderElement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builder::*;
+    use crate::{attr, builder::*};
 
     #[test]
     pub fn wont_indent_text_surrounded_by_tags() {
@@ -199,12 +206,19 @@ mod tests {
         let output = RenderElement::write_many_to_string(&render_elements).unwrap();
         assert_eq!(
             output,
-            r#"
-<h3>
-  <small>test </small>tested<small>!</small>
-</h3>
-"#
-            .trim()
+            r#"<h3><small>test </small>tested<small>!</small></h3>"#.trim()
         );
+    }
+
+    #[test]
+    pub fn wont_indent_inline_elements() {
+        let elements = [
+            text("test "),
+            a([attr(("href", "https://example.com"))])([text("tested")]),
+            text("!"),
+        ];
+        let render_elements = RenderElement::from_elements(elements);
+        let output = RenderElement::write_many_to_string(&render_elements).unwrap();
+        assert_eq!(output, r#"test <a href="https://example.com">tested</a>!"#);
     }
 }

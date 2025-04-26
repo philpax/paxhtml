@@ -28,7 +28,8 @@ impl Document {
 
     /// Write the document to a writer.
     pub fn write(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
-        RenderElement::write_many(writer, &self.children, 0)
+        RenderElement::write_many(writer, &self.children, 0)?;
+        Ok(())
     }
 
     /// Write the document to a file in the given route.
