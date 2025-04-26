@@ -99,6 +99,7 @@ pub enum AttributeParseError {
 }
 /// Context of what was being parsed when an error occurred
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub enum ParseContext {
     /// Expected an attribute name but found something else
     ExpectedAttributeName,
@@ -207,9 +208,9 @@ impl Attribute {
                     match c {
                         ' ' | '\t' | '\n' => {
                             // Look ahead to see if there's an equals sign
-                            let mut temp_iter = chars.clone();
+                            let temp_iter = chars.clone();
                             let mut found_equals = false;
-                            while let Some((_, next_c)) = temp_iter.next() {
+                            for (_, next_c) in temp_iter {
                                 if next_c == '=' {
                                     found_equals = true;
                                     break;
@@ -286,10 +287,8 @@ impl Attribute {
                         });
                         current_key.clear();
                         state = ParseState::BeforeAttribute;
-                    } else {
-                        if let Some(ref mut value) = current_value {
-                            value.push(c);
-                        }
+                    } else if let Some(ref mut value) = current_value {
+                        value.push(c);
                     }
                 }
                 ParseState::InUnquotedValue => match c {
