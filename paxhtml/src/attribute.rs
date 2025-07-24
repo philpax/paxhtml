@@ -118,8 +118,7 @@ impl std::fmt::Display for AttributeParseError {
             } => {
                 write!(
                     f,
-                    "Unclosed quote '{}' at position {} with partial value '{}'",
-                    quote, position, partial_value
+                    "Unclosed quote '{quote}' at position {position} with partial value '{partial_value}'"
                 )
             }
             AttributeParseError::InvalidSyntax {

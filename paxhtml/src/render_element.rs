@@ -117,7 +117,7 @@ impl RenderElement {
                     if idx > 0 {
                         writeln!(writer)?;
                     }
-                    write!(writer, "{}", line)?;
+                    write!(writer, "{line}")?;
                 }
                 Ok(())
             }
