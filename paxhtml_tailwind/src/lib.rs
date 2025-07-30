@@ -83,10 +83,10 @@ pub const RECOMMENDED_VERSION: &str = "4.1.11";
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```no_run
 /// use paxhtml_tailwind::download_and_run;
 ///
-/// match download_and_run(false, "src/styles/tailwind.css") {
+/// match download_and_run(paxhtml_tailwind::RECOMMENDED_VERSION, false, "src/styles/tailwind.css") {
 ///     Ok(css) => println!("Generated CSS: {}", css),
 ///     Err(e) => eprintln!("Error: {}", e),
 /// }
