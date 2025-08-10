@@ -30,20 +30,20 @@ pub fn register(lua: &mlua::Lua) -> mlua::Result<()> {
         "fragment",
         lua.create_function(move |lua, children: mlua::Value| {
             let children = process_children_value(lua, children)?;
-            Ok(lua.to_value(&paxhtml::Element::Fragment { children })?)
+            lua.to_value(&paxhtml::Element::Fragment { children })
         })?,
     )?;
 
     lua.globals().set(
         "text_element",
         lua.create_function(move |lua, text: String| {
-            Ok(lua.to_value(&paxhtml::Element::Text { text })?)
+            lua.to_value(&paxhtml::Element::Text { text })
         })?,
     )?;
 
     lua.globals().set(
         "empty_element",
-        lua.create_function(move |lua, _: ()| Ok(lua.to_value(&paxhtml::Element::Empty)?))?,
+        lua.create_function(move |lua, _: ()| lua.to_value(&paxhtml::Element::Empty))?,
     )?;
 
     Ok(())
@@ -95,12 +95,12 @@ fn build_element_function(
                 move |lua, children: mlua::Value| {
                     let children = process_children_value(lua, children)?;
 
-                    Ok(lua.to_value(&paxhtml::Element::Tag {
+                    lua.to_value(&paxhtml::Element::Tag {
                         name: name.clone(),
                         attributes: attributes.clone(),
                         children,
                         void,
-                    })?)
+                    })
                 },
             )?))
         }
