@@ -1,0 +1,10 @@
+[package]
+name = "paxhtml_mlua"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mlua = { version = "0.11.1", features = ["serde"] }
+paxhtml = { path = "../paxhtml", features = [
+    "serde",
+], default-features = false }

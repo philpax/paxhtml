@@ -44,12 +44,17 @@ pub fn doctype(attributes: impl IntoIterator<Item = Attribute>) -> Element {
 }
 
 macro_rules! non_void_builders {
-    ($($tag_ident:ident),*) => { $(
-        #[doc = concat!("Create a non-void element with the tag name `", stringify!($tag_ident), "` and a list of attributes.\n\nThe children are passed in as a single argument to the returned function.")]
-        pub fn $tag_ident<E: Into<Element>>(attributes: impl IntoIterator<Item = Attribute>) -> impl FnOnce(E) -> Element {
-            tag(stringify!($tag_ident), attributes, false)
-        }
-    )* };
+    ($($tag_ident:ident),*) => {
+        $(
+            #[doc = concat!("Create a non-void element with the tag name `", stringify!($tag_ident), "` and a list of attributes.\n\nThe children are passed in as a single argument to the returned function.")]
+            pub fn $tag_ident<E: Into<Element>>(attributes: impl IntoIterator<Item = Attribute>) -> impl FnOnce(E) -> Element {
+                tag(stringify!($tag_ident), attributes, false)
+            }
+
+        )*
+        /// A list of all non-void tags.
+        pub const NON_VOID_TAGS: &[&str] = &[$(stringify!($tag_ident)),*];
+    };
 }
 non_void_builders! {
     head, body, main, p, code, div, pre, header, nav,
@@ -60,12 +65,16 @@ non_void_builders! {
 }
 
 macro_rules! void_builders {
-    ($($tag_ident:ident),*) => { $(
-        #[doc = concat!("Create a void element with the tag name `", stringify!($tag_ident), "` and a list of attributes.")]
-        pub fn $tag_ident(attributes: impl IntoIterator<Item = Attribute>) -> Element {
-            tag(stringify!($tag_ident), attributes, true)([])
-        }
-    )* };
+    ($($tag_ident:ident),*) => {
+        $(
+            #[doc = concat!("Create a void element with the tag name `", stringify!($tag_ident), "` and a list of attributes.")]
+            pub fn $tag_ident(attributes: impl IntoIterator<Item = Attribute>) -> Element {
+                tag(stringify!($tag_ident), attributes, true)([])
+            }
+        )*
+        /// A list of all void tags.
+        pub const VOID_TAGS: &[&str] = &[$(stringify!($tag_ident)),*];
+    };
 }
 void_builders! {
     area, base, br, col, embed, hr, input, link, meta,
