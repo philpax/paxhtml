@@ -1,11 +1,12 @@
 use crate::Attribute;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 /// An element in an HTML document. This is optimised for authoring, and supports both
 /// [Element::Empty] and [Element::Fragment] for convenience.
 ///
 /// These will be removed when converted to [crate::RenderElement]s.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(tag = "type"))]
 pub enum Element {
     #[default]
     /// An empty element.
