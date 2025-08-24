@@ -164,16 +164,29 @@ impl Tailwind {
 
     /// Takes a path to a CSS file that imports Tailwind style, and outputs the generated CSS.
     pub fn generate_from_file(&self, input_path: &Path) -> Result<String> {
-        self.run_with_args(&["--input", input_path.to_str().unwrap(), "--output", "-"])
+        self.run_command_to_completion(&["--input", input_path.to_str().unwrap(), "--output", "-"])
     }
 
-    /// Run the Tailwind executable with the given arguments.
-    pub fn run_with_args(&self, args: &[&str]) -> Result<String> {
-        let mut command = match self {
+    /// Watch the given input file and output the generated CSS to the given output file.
+    ///
+    /// You will need to `spawn` the process; you can customise the standard handles before doing so.
+    pub fn watch(&self, input_path: &Path, output_path: &Path) -> Result<Command> {
+        self.create_command_with_args(&[
+            "--input",
+            input_path.to_str().unwrap(),
+            "--output",
+            output_path.to_str().unwrap(),
+            "--watch",
+        ])
+    }
+
+    /// Create a Tailwind [`Command`] with the given arguments.
+    pub fn create_command_with_args(&self, args: &[&str]) -> Result<Command> {
+        match self {
             Tailwind::Local(path) => {
                 let mut cmd = Command::new(path.canonicalize()?);
                 cmd.args(args);
-                cmd
+                Ok(cmd)
             }
             Tailwind::Global => {
                 let (shell, flag) = if cfg!(target_os = "windows") {
@@ -184,11 +197,14 @@ impl Tailwind {
 
                 let mut cmd = Command::new(shell);
                 cmd.args([flag, &format!("tailwindcss {}", args.join(" "))]);
-                cmd
+                Ok(cmd)
             }
-        };
+        }
+    }
 
-        let output = command.output()?;
+    /// Run the Tailwind executable with the given arguments.
+    pub fn run_command_to_completion(&self, args: &[&str]) -> Result<String> {
+        let output = self.create_command_with_args(args)?.output()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
 
         if !output.status.success() {
