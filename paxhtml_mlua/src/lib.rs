@@ -31,14 +31,14 @@ pub fn register(lua: &mlua::Lua) -> mlua::Result<()> {
     )?;
 
     table.set(
-        "text_element",
+        "text",
         lua.create_function(move |lua, text: String| {
             lua.to_value(&paxhtml::Element::Text { text })
         })?,
     )?;
 
     table.set(
-        "empty_element",
+        "empty",
         lua.create_function(move |lua, _: ()| lua.to_value(&paxhtml::Element::Empty))?,
     )?;
 
