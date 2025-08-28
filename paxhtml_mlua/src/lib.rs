@@ -2,31 +2,27 @@ use mlua::LuaSerdeExt;
 use paxhtml::{Attribute, Element};
 
 pub fn register(lua: &mlua::Lua) -> mlua::Result<()> {
-    lua.globals().set(
+    let table = lua.create_table()?;
+
+    table.set(
         "element",
         lua.create_function(move |lua, name: String| build_element_function(lua, name, false))?,
     )?;
 
-    lua.globals().set(
+    table.set(
         "void_element",
         lua.create_function(move |lua, name: String| build_element_function(lua, name, true))?,
     )?;
 
     for name in paxhtml::builder::NON_VOID_TAGS {
-        lua.globals().set(
-            sanitize_name(name),
-            build_element_function(lua, name.to_string(), false)?,
-        )?;
+        table.set(*name, build_element_function(lua, name.to_string(), false)?)?;
     }
 
     for name in paxhtml::builder::VOID_TAGS {
-        lua.globals().set(
-            sanitize_name(name),
-            build_element_function(lua, name.to_string(), true)?,
-        )?;
+        table.set(*name, build_element_function(lua, name.to_string(), true)?)?;
     }
 
-    lua.globals().set(
+    table.set(
         "fragment",
         lua.create_function(move |lua, children: mlua::Value| {
             let children = process_children_value(lua, children)?;
@@ -34,29 +30,21 @@ pub fn register(lua: &mlua::Lua) -> mlua::Result<()> {
         })?,
     )?;
 
-    lua.globals().set(
+    table.set(
         "text_element",
         lua.create_function(move |lua, text: String| {
             lua.to_value(&paxhtml::Element::Text { text })
         })?,
     )?;
 
-    lua.globals().set(
+    table.set(
         "empty_element",
         lua.create_function(move |lua, _: ()| lua.to_value(&paxhtml::Element::Empty))?,
     )?;
 
+    lua.globals().set("h", table)?;
+
     Ok(())
-}
-
-fn sanitize_name(name: &str) -> String {
-    const EXISTING_LUA_NAMES: &[&str] = &["table"];
-
-    if EXISTING_LUA_NAMES.contains(&name) {
-        format!("{name}_")
-    } else {
-        name.to_string()
-    }
 }
 
 fn build_element_function(
