@@ -61,7 +61,7 @@ non_void_builders! {
     ol, ul, li, strong, em, blockquote, article, section,
     aside, span, script, title, time, html, a,
     h1, h2, h3, h4, h5, h6, small, sup, sub, label, q, s,
-    table, tr, td, th, tbody, thead, tfoot, colgroup
+    table, tr, td, th, tbody, thead, tfoot, colgroup, video
 }
 
 macro_rules! void_builders {
