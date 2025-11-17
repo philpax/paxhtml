@@ -214,7 +214,7 @@ impl Parse for HtmlNode {
 
 // Helper function to check if a name represents a custom component (starts with uppercase)
 fn is_custom_component(name: &str) -> bool {
-    name.chars().next().map_or(false, |c| c.is_uppercase())
+    name.chars().next().is_some_and(|c| c.is_uppercase())
 }
 
 // Convert HtmlNode to TokenStream
@@ -243,8 +243,7 @@ impl ToTokens for HtmlNode {
                     // Generate custom component call
                     let component_ident = syn::Ident::new(name, proc_macro2::Span::call_site());
                     let props_type = format!("{}Props", name);
-                    let props_ident =
-                        syn::Ident::new(&props_type, proc_macro2::Span::call_site());
+                    let props_ident = syn::Ident::new(&props_type, proc_macro2::Span::call_site());
 
                     // Convert attributes to struct fields
                     let mut field_inits = Vec::new();
