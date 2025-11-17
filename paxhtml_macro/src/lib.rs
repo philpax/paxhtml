@@ -212,6 +212,11 @@ impl Parse for HtmlNode {
     }
 }
 
+// Helper function to check if a name represents a custom component (starts with uppercase)
+fn is_custom_component(name: &str) -> bool {
+    name.chars().next().is_some_and(|c| c.is_uppercase())
+}
+
 // Convert HtmlNode to TokenStream
 impl ToTokens for HtmlNode {
     fn to_tokens(&self, tokens: &mut TokenStream2) {
@@ -222,44 +227,94 @@ impl ToTokens for HtmlNode {
                 children,
                 void,
             } => {
-                let attrs = if attributes.is_empty() {
-                    quote! { vec![] }
-                } else {
-                    let mut attr_tokens = Vec::new();
+                // Check if this is a custom component
+                if is_custom_component(name) {
+                    // Check for interpolated attributes (not supported for custom components)
+                    let has_interpolated = attributes
+                        .iter()
+                        .any(|attr| matches!(attr, HtmlAttribute::Interpolated(_)));
+                    if has_interpolated {
+                        tokens.extend(quote! {
+                            compile_error!("Interpolated attributes are not supported for custom components")
+                        });
+                        return;
+                    }
+
+                    // Generate custom component call
+                    let component_ident = syn::Ident::new(name, proc_macro2::Span::call_site());
+                    let props_type = format!("{}Props", name);
+                    let props_ident = syn::Ident::new(&props_type, proc_macro2::Span::call_site());
+
+                    // Convert attributes to struct fields
+                    let mut field_inits = Vec::new();
                     for attr in attributes {
-                        match attr {
-                            HtmlAttribute::Named { name, value } => {
-                                let attr_token = match value {
-                                    Some(value) => quote! {
-                                        paxhtml::attr((#name.to_string(), #value.to_string()))
-                                    },
-                                    None => quote! {
-                                        paxhtml::attr(#name.to_string())
-                                    },
-                                };
-                                attr_tokens.push(quote! { attrs.push(#attr_token); });
-                            }
-                            HtmlAttribute::Interpolated(expr) => {
-                                attr_tokens.push(quote! { attrs.extend(#expr); });
-                            }
+                        if let HtmlAttribute::Named { name, value } = attr {
+                            // Convert kebab-case to snake_case for Rust struct fields
+                            let field_name = name.replace('-', "_");
+                            let field_ident =
+                                syn::Ident::new(&field_name, proc_macro2::Span::call_site());
+
+                            let value_expr = match value {
+                                Some(v) => quote! { #v.into() },
+                                None => quote! { true.into() },
+                            };
+
+                            field_inits.push(quote! { #field_ident: #value_expr });
                         }
                     }
-                    quote! {{
-                        let mut attrs = Vec::new();
-                        #(#attr_tokens)*
-                        attrs
-                    }}
-                };
 
-                let children = if children.is_empty() {
-                    quote! { vec![] }
+                    // Add children if present
+                    if !children.is_empty() {
+                        field_inits.push(quote! { children: vec![#(#children),*] });
+                    }
+
+                    tokens.extend(quote! {
+                        #component_ident(#props_ident {
+                            #(#field_inits,)*
+                            ..Default::default()
+                        })
+                    });
                 } else {
-                    quote! { [#(#children),*] }
-                };
+                    // Regular HTML element
+                    let attrs = if attributes.is_empty() {
+                        quote! { vec![] }
+                    } else {
+                        let mut attr_tokens = Vec::new();
+                        for attr in attributes {
+                            match attr {
+                                HtmlAttribute::Named { name, value } => {
+                                    let attr_token = match value {
+                                        Some(value) => quote! {
+                                            paxhtml::attr((#name.to_string(), #value.to_string()))
+                                        },
+                                        None => quote! {
+                                            paxhtml::attr(#name.to_string())
+                                        },
+                                    };
+                                    attr_tokens.push(quote! { attrs.push(#attr_token); });
+                                }
+                                HtmlAttribute::Interpolated(expr) => {
+                                    attr_tokens.push(quote! { attrs.extend(#expr); });
+                                }
+                            }
+                        }
+                        quote! {{
+                            let mut attrs = Vec::new();
+                            #(#attr_tokens)*
+                            attrs
+                        }}
+                    };
 
-                tokens.extend(quote! {
-                    paxhtml::builder::tag(#name, #attrs, #void)(#children)
-                });
+                    let children = if children.is_empty() {
+                        quote! { vec![] }
+                    } else {
+                        quote! { [#(#children),*] }
+                    };
+
+                    tokens.extend(quote! {
+                        paxhtml::builder::tag(#name, #attrs, #void)(#children)
+                    });
+                }
             }
             HtmlNode::Fragment(children) => {
                 tokens.extend(quote! {
