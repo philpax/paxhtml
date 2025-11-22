@@ -17,7 +17,9 @@ pub use document::Document;
 mod element;
 pub use element::Element;
 
+#[cfg(feature = "parser")]
 mod eval;
+#[cfg(feature = "parser")]
 pub use eval::{eval_node, EvalError};
 
 mod render_element;
@@ -30,8 +32,10 @@ pub use routing::RoutePath;
 pub use paxhtml_macro::html;
 
 // Re-export parser types for convenience
+#[cfg(feature = "parser")]
 pub use paxhtml_parser::{parse_html as parse_html_ast, AstNode, ParseError};
 
+#[cfg(feature = "parser")]
 /// Error type for runtime HTML parsing
 #[derive(Debug)]
 pub enum ParseHtmlError {
@@ -41,6 +45,7 @@ pub enum ParseHtmlError {
     Eval(EvalError),
 }
 
+#[cfg(feature = "parser")]
 impl std::fmt::Display for ParseHtmlError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -50,6 +55,7 @@ impl std::fmt::Display for ParseHtmlError {
     }
 }
 
+#[cfg(feature = "parser")]
 impl std::error::Error for ParseHtmlError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -59,18 +65,21 @@ impl std::error::Error for ParseHtmlError {
     }
 }
 
+#[cfg(feature = "parser")]
 impl From<ParseError> for ParseHtmlError {
     fn from(e: ParseError) -> Self {
         ParseHtmlError::Parse(e)
     }
 }
 
+#[cfg(feature = "parser")]
 impl From<EvalError> for ParseHtmlError {
     fn from(e: EvalError) -> Self {
         ParseHtmlError::Eval(e)
     }
 }
 
+#[cfg(feature = "parser")]
 /// Parse an HTML string into a runtime [Element] tree.
 ///
 /// This function parses HTML at runtime and returns an [Element] tree that can be
