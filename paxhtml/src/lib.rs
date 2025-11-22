@@ -17,6 +17,9 @@ pub use document::Document;
 mod element;
 pub use element::Element;
 
+mod eval;
+pub use eval::{eval_node, EvalError};
+
 mod render_element;
 pub use render_element::RenderElement;
 
@@ -25,3 +28,31 @@ pub use routing::RoutePath;
 
 #[cfg(feature = "macros")]
 pub use paxhtml_macro::html;
+
+// Re-export parser types for convenience
+pub use paxhtml_parser::{parse_html as parse_html_ast, AstNode, ParseError};
+
+/// Parse an HTML string into a runtime [Element] tree.
+///
+/// This function parses HTML at runtime and returns an [Element] tree that can be
+/// used with [Document] or other paxhtml APIs.
+///
+/// # Example
+///
+/// ```
+/// use paxhtml::{parse_html, Document};
+///
+/// let element = parse_html(r#"<div class="container"><p>Hello, world!</p></div>"#).unwrap();
+/// let doc = Document::new([element]);
+/// let html = doc.write_to_string();
+/// ```
+///
+/// # Errors
+///
+/// Returns a [ParseError] if the HTML is malformed, or an [EvalError] if the HTML
+/// contains features not supported at runtime (like interpolation syntax).
+pub fn parse_html(html: &str) -> Result<Element, Box<dyn std::error::Error>> {
+    let ast = paxhtml_parser::parse_html(html)?;
+    let element = eval::eval_node(&ast)?;
+    Ok(element)
+}

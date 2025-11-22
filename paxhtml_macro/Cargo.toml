@@ -11,3 +11,4 @@ convert_case = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true }
+paxhtml_parser = { path = "../paxhtml_parser" }
