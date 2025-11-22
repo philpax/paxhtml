@@ -7,11 +7,13 @@ edition = "2021"
 html-escape = { workspace = true }
 
 paxhtml_macro = { path = "../paxhtml_macro", optional = true }
+paxhtml_parser = { path = "../paxhtml_parser", optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 [features]
-default = ["macros"]
-macros = ["dep:paxhtml_macro"]
+default = ["macros", "parser"]
+macros = ["dep:paxhtml_macro", "dep:paxhtml_parser"]
+parser = ["dep:paxhtml_parser"]
 serde = ["dep:serde"]
 dump_tree = ["serde", "dep:serde_json"]

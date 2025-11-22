@@ -17,6 +17,11 @@ pub use document::Document;
 mod element;
 pub use element::Element;
 
+#[cfg(feature = "parser")]
+mod eval;
+#[cfg(feature = "parser")]
+pub use eval::{eval_node, parse_html, EvalError, ParseHtmlError};
+
 mod render_element;
 pub use render_element::RenderElement;
 
@@ -25,3 +30,7 @@ pub use routing::RoutePath;
 
 #[cfg(feature = "macros")]
 pub use paxhtml_macro::html;
+
+// Re-export parser types for convenience
+#[cfg(feature = "parser")]
+pub use paxhtml_parser::{parse_html as parse_html_ast, AstNode, ParseError};

@@ -220,6 +220,7 @@ version = "0.1.0"
 dependencies = [
  "html-escape",
  "paxhtml_macro",
+ "paxhtml_parser",
  "serde",
  "serde_json",
 ]
@@ -229,6 +230,7 @@ name = "paxhtml_macro"
 version = "0.1.0"
 dependencies = [
  "convert_case",
+ "paxhtml_parser",
  "proc-macro2",
  "quote",
  "syn",
@@ -240,6 +242,16 @@ version = "0.1.0"
 dependencies = [
  "mlua",
  "paxhtml",
+]
+
+[[package]]
+name = "paxhtml_parser"
+version = "0.1.0"
+dependencies = [
+ "convert_case",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
