@@ -32,6 +32,45 @@ pub use paxhtml_macro::html;
 // Re-export parser types for convenience
 pub use paxhtml_parser::{parse_html as parse_html_ast, AstNode, ParseError};
 
+/// Error type for runtime HTML parsing
+#[derive(Debug)]
+pub enum ParseHtmlError {
+    /// Error parsing the HTML syntax
+    Parse(ParseError),
+    /// Error evaluating the AST (e.g., interpolation not supported)
+    Eval(EvalError),
+}
+
+impl std::fmt::Display for ParseHtmlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseHtmlError::Parse(e) => write!(f, "Parse error: {}", e),
+            ParseHtmlError::Eval(e) => write!(f, "Evaluation error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for ParseHtmlError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ParseHtmlError::Parse(e) => Some(e),
+            ParseHtmlError::Eval(e) => Some(e),
+        }
+    }
+}
+
+impl From<ParseError> for ParseHtmlError {
+    fn from(e: ParseError) -> Self {
+        ParseHtmlError::Parse(e)
+    }
+}
+
+impl From<EvalError> for ParseHtmlError {
+    fn from(e: EvalError) -> Self {
+        ParseHtmlError::Eval(e)
+    }
+}
+
 /// Parse an HTML string into a runtime [Element] tree.
 ///
 /// This function parses HTML at runtime and returns an [Element] tree that can be
@@ -49,9 +88,9 @@ pub use paxhtml_parser::{parse_html as parse_html_ast, AstNode, ParseError};
 ///
 /// # Errors
 ///
-/// Returns a [ParseError] if the HTML is malformed, or an [EvalError] if the HTML
-/// contains features not supported at runtime (like interpolation syntax).
-pub fn parse_html(html: &str) -> Result<Element, Box<dyn std::error::Error>> {
+/// Returns a [ParseHtmlError] if the HTML is malformed or contains features not
+/// supported at runtime (like interpolation syntax).
+pub fn parse_html(html: &str) -> Result<Element, ParseHtmlError> {
     let ast = paxhtml_parser::parse_html(html)?;
     let element = eval::eval_node(&ast)?;
     Ok(element)
