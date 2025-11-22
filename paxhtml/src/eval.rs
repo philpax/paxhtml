@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_eval_simple_element() {
-        let html = r#"<div class="container">Hello</div>"#;
+        let html = r#"<div class="container">"Hello"</div>"#;
         let ast = parse_html(html).unwrap();
         let element = eval_node(&ast).unwrap();
 
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_eval_void_element() {
-        let html = r#"<input type="text" />"#;
+        let html = r#"<input r#type="text" />"#;
         let ast = parse_html(html).unwrap();
         let element = eval_node(&ast).unwrap();
 
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn test_eval_nested_elements() {
-        let html = r#"<div><p>Hello</p><span>World</span></div>"#;
+        let html = r#"<div><p>"Hello"</p><span>"World"</span></div>"#;
         let ast = parse_html(html).unwrap();
         let element = eval_node(&ast).unwrap();
 
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn test_eval_fragment() {
-        let html = r#"<><div>First</div><div>Second</div></>"#;
+        let html = r#"<><div>"First"</div><div>"Second"</div></>"#;
         let ast = parse_html(html).unwrap();
         let element = eval_node(&ast).unwrap();
 

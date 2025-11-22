@@ -1,347 +1,214 @@
 use crate::ast::{AstAttribute, AstNode, AttributeValue};
 use convert_case::{Case, Casing};
 use std::fmt;
+use syn::{
+    parse::{Parse, ParseStream},
+    token, Expr, Ident, LitStr, Result as SynResult, Token,
+};
 
 /// Error type for parsing HTML
 #[derive(Debug, Clone)]
 pub struct ParseError {
     pub message: String,
-    pub position: usize,
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Parse error at position {}: {}", self.position, self.message)
+        write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for ParseError {}
 
-/// Parser for HTML strings
-pub struct Parser {
-    input: Vec<char>,
-    pos: usize,
+impl From<syn::Error> for ParseError {
+    fn from(err: syn::Error) -> Self {
+        ParseError {
+            message: err.to_string(),
+        }
+    }
 }
 
-impl Parser {
-    fn new(input: &str) -> Self {
-        Self {
-            input: input.chars().collect(),
-            pos: 0,
-        }
-    }
+/// Wrapper for parsing AstNode from syn
+pub struct SynAstNode(pub AstNode);
 
-    fn current(&self) -> Option<char> {
-        self.input.get(self.pos).copied()
+impl Parse for SynAstNode {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        Ok(SynAstNode(parse_node(input)?))
     }
+}
 
-    fn peek(&self, offset: usize) -> Option<char> {
-        self.input.get(self.pos + offset).copied()
-    }
+fn parse_attribute(input: ParseStream) -> SynResult<AstAttribute> {
+    if input.peek(token::Brace) {
+        // Parse interpolated attribute
+        let content;
+        syn::braced!(content in input);
+        let expr = content.parse::<Expr>()?;
+        Ok(AstAttribute::Interpolated(quote::quote! { #expr }))
+    } else {
+        let name = input.parse::<Ident>()?.to_string();
+        let name = name
+            .strip_prefix("r#")
+            .unwrap_or(&name)
+            .to_case(Case::Kebab);
 
-    fn advance(&mut self) -> Option<char> {
-        let c = self.current();
-        if c.is_some() {
-            self.pos += 1;
-        }
-        c
-    }
+        // Handle valueless attributes
+        if input.peek(Token![=]) {
+            input.parse::<Token![=]>()?;
 
-    fn skip_whitespace(&mut self) {
-        while let Some(c) = self.current() {
-            if c.is_whitespace() {
-                self.advance();
+            let value = if input.peek(token::Brace) {
+                // Parse Rust expression in braces
+                let content;
+                syn::braced!(content in input);
+                let expr = content.parse::<Expr>()?;
+                Some(AttributeValue::Expression(quote::quote! { #expr }))
             } else {
-                break;
-            }
-        }
-    }
+                // Parse string literal
+                Some(AttributeValue::Literal(input.parse::<LitStr>()?.value()))
+            };
 
-    fn error(&self, message: impl Into<String>) -> ParseError {
-        ParseError {
-            message: message.into(),
-            position: self.pos,
-        }
-    }
-
-    fn expect(&mut self, expected: char) -> Result<(), ParseError> {
-        match self.advance() {
-            Some(c) if c == expected => Ok(()),
-            Some(c) => Err(self.error(format!("Expected '{}', found '{}'", expected, c))),
-            None => Err(self.error(format!("Expected '{}', found end of input", expected))),
-        }
-    }
-
-    fn parse_identifier(&mut self) -> Result<String, ParseError> {
-        let mut ident = String::new();
-
-        // First character must be alphabetic or underscore
-        match self.current() {
-            Some(c) if c.is_alphabetic() || c == '_' => {
-                ident.push(c);
-                self.advance();
-            }
-            Some(c) => return Err(self.error(format!("Expected identifier, found '{}'", c))),
-            None => return Err(self.error("Expected identifier, found end of input")),
-        }
-
-        // Subsequent characters can be alphanumeric, underscore, or hyphen
-        while let Some(c) = self.current() {
-            if c.is_alphanumeric() || c == '_' || c == '-' {
-                ident.push(c);
-                self.advance();
-            } else {
-                break;
-            }
-        }
-
-        Ok(ident)
-    }
-
-    fn parse_string_literal(&mut self) -> Result<String, ParseError> {
-        self.expect('"')?;
-        let mut value = String::new();
-
-        loop {
-            match self.current() {
-                Some('"') => {
-                    self.advance();
-                    break;
-                }
-                Some('\\') => {
-                    self.advance();
-                    match self.current() {
-                        Some('n') => {
-                            value.push('\n');
-                            self.advance();
-                        }
-                        Some('r') => {
-                            value.push('\r');
-                            self.advance();
-                        }
-                        Some('t') => {
-                            value.push('\t');
-                            self.advance();
-                        }
-                        Some('\\') => {
-                            value.push('\\');
-                            self.advance();
-                        }
-                        Some('"') => {
-                            value.push('"');
-                            self.advance();
-                        }
-                        Some(c) => {
-                            value.push(c);
-                            self.advance();
-                        }
-                        None => return Err(self.error("Unterminated string literal")),
-                    }
-                }
-                Some(c) => {
-                    value.push(c);
-                    self.advance();
-                }
-                None => return Err(self.error("Unterminated string literal")),
-            }
-        }
-
-        Ok(value)
-    }
-
-    fn parse_attribute(&mut self) -> Result<AstAttribute, ParseError> {
-        // Check for interpolation (not supported in runtime parser)
-        if let Some('{') = self.current() {
-            return Err(self.error("Interpolation is not supported in runtime HTML parsing"));
-        }
-
-        let name = self.parse_identifier()?;
-        let name = name.to_case(Case::Kebab);
-
-        self.skip_whitespace();
-
-        // Check for attribute value
-        if let Some('=') = self.current() {
-            self.advance();
-            self.skip_whitespace();
-
-            // Check for interpolation in value
-            if let Some('{') = self.current() {
-                return Err(self.error("Interpolation is not supported in runtime HTML parsing"));
-            }
-
-            let value = self.parse_string_literal()?;
-            Ok(AstAttribute::Named {
-                name,
-                value: Some(AttributeValue::Literal(value)),
-            })
+            Ok(AstAttribute::Named { name, value })
         } else {
-            // Valueless attribute
             Ok(AstAttribute::Named { name, value: None })
         }
     }
+}
 
-    fn parse_text(&mut self) -> Result<String, ParseError> {
-        let mut text = String::new();
+fn parse_node(input: ParseStream) -> SynResult<AstNode> {
+    if input.peek(token::Lt) {
+        // Parse element
+        input.parse::<Token![<]>()?;
 
-        loop {
-            match self.current() {
-                Some('<') | Some('{') | None => break,
-                Some(c) => {
-                    text.push(c);
-                    self.advance();
+        enum TagType {
+            Fragment,
+            Name(String),
+        }
+
+        impl TagType {
+            pub fn is_fragment(&self) -> bool {
+                matches!(self, TagType::Fragment)
+            }
+            pub fn unwrap_name_as_ref(&self) -> &str {
+                match self {
+                    TagType::Name(name) => name,
+                    TagType::Fragment => panic!("Fragment cannot have a name"),
                 }
             }
         }
 
-        Ok(text)
-    }
+        let tag = if input.peek(Token![>]) {
+            TagType::Fragment
+        } else {
+            let name = input.parse::<Ident>()?.to_string();
+            TagType::Name(name.strip_prefix("r#").unwrap_or(&name).to_string())
+        };
 
-    fn parse_node(&mut self) -> Result<AstNode, ParseError> {
-        self.skip_whitespace();
-
-        // Check for interpolation
-        if let Some('{') = self.current() {
-            return Err(self.error("Interpolation is not supported in runtime HTML parsing"));
+        // Parse attributes
+        let mut attributes = Vec::new();
+        while !input.peek(Token![>]) && !input.peek(Token![/]) {
+            attributes.push(parse_attribute(input)?);
         }
 
-        if let Some('#') = self.current() {
-            if let Some('{') = self.peek(1) {
-                return Err(self.error("Interpolation is not supported in runtime HTML parsing"));
-            }
-        }
+        // Handle void elements
+        let void = if input.peek(Token![/]) {
+            input.parse::<Token![/]>()?;
+            input.parse::<Token![>]>()?;
+            true
+        } else {
+            input.parse::<Token![>]>()?;
+            false
+        };
 
-        // Check for element
-        if let Some('<') = self.current() {
-            self.advance();
-
-            // Check for fragment or closing tag
-            if let Some('>') = self.current() {
-                // Fragment opening tag: <>
-                self.advance();
-                let children = self.parse_children(None)?;
-                // parse_children already consumed the closing tag
-                return Ok(AstNode::Fragment(children));
-            } else if let Some('/') = self.current() {
-                return Err(self.error("Unexpected closing tag"));
-            }
-
-            // Parse tag name
-            let name = self.parse_identifier()?;
-            self.skip_whitespace();
-
-            // Parse attributes
-            let mut attributes = Vec::new();
-            while let Some(c) = self.current() {
-                if c == '>' || c == '/' {
-                    break;
+        if void {
+            match tag {
+                TagType::Name(name) => {
+                    return Ok(AstNode::Element {
+                        name,
+                        attributes,
+                        children: vec![],
+                        void: true,
+                    });
                 }
-                attributes.push(self.parse_attribute()?);
-                self.skip_whitespace();
+                _ => return Err(input.error("Fragment cannot be void")),
             }
+        }
 
-            // Check for void element
-            let void = if let Some('/') = self.current() {
-                self.advance();
-                self.skip_whitespace();
-                self.expect('>')?;
-                true
-            } else {
-                self.expect('>')?;
-                false
-            };
-
-            if void {
-                return Ok(AstNode::Element {
-                    name,
-                    attributes,
-                    children: vec![],
-                    void: true,
+        // Parse children
+        let mut children = Vec::new();
+        while !input.peek(Token![<]) || !input.peek2(Token![/]) {
+            if input.peek(token::Brace) || (input.peek(Token![#]) && input.peek2(token::Brace)) {
+                // Parse interpolated Rust expression
+                let iterator = if input.peek(Token![#]) {
+                    input.parse::<Token![#]>()?;
+                    true
+                } else {
+                    false
+                };
+                let content;
+                syn::braced!(content in input);
+                let expr = content.parse::<Expr>()?;
+                children.push(AstNode::Expression {
+                    body: quote::quote! { #expr },
+                    iterator,
                 });
+            } else if input.peek(Token![<]) {
+                // Parse nested element
+                children.push(parse_node(input)?);
+            } else {
+                // Parse text content
+                let text = input.parse::<LitStr>()?.value();
+                children.push(AstNode::Text(text));
             }
 
-            // Parse children
-            let children = self.parse_children(Some(&name))?;
+            if input.is_empty() {
+                break;
+            }
+        }
 
-            Ok(AstNode::Element {
+        // Parse closing tag
+        input.parse::<Token![<]>()?;
+        input.parse::<Token![/]>()?;
+        if !tag.is_fragment() {
+            let close_name = input.parse::<Ident>()?.to_string();
+            if close_name != tag.unwrap_name_as_ref() {
+                return Err(input.error("Mismatched opening and closing tags"));
+            }
+        }
+        input.parse::<Token![>]>()?;
+
+        match tag {
+            TagType::Fragment => Ok(AstNode::Fragment(children)),
+            TagType::Name(name) => Ok(AstNode::Element {
                 name,
                 attributes,
                 children,
                 void: false,
-            })
+            }),
+        }
+    } else if input.peek(token::Brace) || (input.peek(Token![#]) && input.peek2(token::Brace)) {
+        // Parse interpolated Rust expression
+        let iterator = if input.peek(Token![#]) {
+            input.parse::<Token![#]>()?;
+            true
         } else {
-            // Parse text
-            let text = self.parse_text()?;
-            if text.is_empty() {
-                Err(self.error("Expected element or text"))
-            } else {
-                Ok(AstNode::Text(text))
-            }
-        }
-    }
-
-    fn parse_children(&mut self, parent_tag: Option<&str>) -> Result<Vec<AstNode>, ParseError> {
-        let mut children = Vec::new();
-
-        loop {
-            self.skip_whitespace();
-
-            // Check for closing tag
-            if let Some('<') = self.current() {
-                if let Some('/') = self.peek(1) {
-                    self.advance(); // consume '<'
-                    self.advance(); // consume '/'
-
-                    // For fragments, expect '>'
-                    if parent_tag.is_none() {
-                        self.skip_whitespace();
-                        self.expect('>')?;
-                    } else {
-                        // For regular elements, expect the tag name
-                        self.skip_whitespace();
-                        let close_name = self.parse_identifier()?;
-                        if Some(close_name.as_str()) != parent_tag {
-                            return Err(self.error(format!(
-                                "Mismatched closing tag: expected {:?}, found '{}'",
-                                parent_tag, close_name
-                            )));
-                        }
-                        self.skip_whitespace();
-                        self.expect('>')?;
-                    }
-                    break;
-                }
-            }
-
-            if self.current().is_none() {
-                if parent_tag.is_some() {
-                    return Err(self.error(format!(
-                        "Unclosed tag: expected closing tag for '{}'",
-                        parent_tag.unwrap()
-                    )));
-                }
-                break;
-            }
-
-            children.push(self.parse_node()?);
-        }
-
-        Ok(children)
+            false
+        };
+        let content;
+        syn::braced!(content in input);
+        let expr = content.parse::<Expr>()?;
+        Ok(AstNode::Expression {
+            body: quote::quote! { #expr },
+            iterator,
+        })
+    } else {
+        // Parse text content
+        Ok(AstNode::Text(input.parse::<LitStr>()?.value()))
     }
 }
 
-/// Parse an HTML string into an AST
-pub fn parse_html(input: &str) -> Result<AstNode, ParseError> {
-    let mut parser = Parser::new(input);
-    let node = parser.parse_node()?;
-    parser.skip_whitespace();
-
-    // Ensure we've consumed all input
-    if parser.current().is_some() {
-        return Err(parser.error("Unexpected content after root element"));
-    }
-
-    Ok(node)
+/// Parse an HTML string into an AST using syn::parse_str
+pub fn parse_html(html: &str) -> Result<AstNode, ParseError> {
+    let node: SynAstNode = syn::parse_str(html)?;
+    Ok(node.0)
 }
 
 #[cfg(test)]
@@ -350,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_parse_simple_element() {
-        let html = r#"<div class="container">Hello</div>"#;
+        let html = r#"<div class="container">"Hello"</div>"#;
         let result = parse_html(html).unwrap();
 
         match result {
@@ -368,7 +235,7 @@ mod tests {
 
     #[test]
     fn test_parse_void_element() {
-        let html = r#"<input type="text" />"#;
+        let html = r#"<input r#type="text" />"#;
         let result = parse_html(html).unwrap();
 
         match result {
@@ -383,12 +250,11 @@ mod tests {
 
     #[test]
     fn test_parse_nested_elements() {
-        let html = r#"<div><p>Hello</p><span>World</span></div>"#;
+        let html = r#"<div><p>"Hello"</p><span>"World"</span></div>"#;
         let result = parse_html(html).unwrap();
 
         match result {
-            AstNode::Element { name, children, .. } => {
-                assert_eq!(name, "div");
+            AstNode::Element { children, .. } => {
                 assert_eq!(children.len(), 2);
             }
             _ => panic!("Expected element"),
@@ -397,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_parse_fragment() {
-        let html = r#"<><div>First</div><div>Second</div></>"#;
+        let html = r#"<><div>"First"</div><div>"Second"</div></>"#;
         let result = parse_html(html).unwrap();
 
         match result {
@@ -409,15 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn test_interpolation_error() {
-        let html = r#"<div>{some_expr}</div>"#;
-        let result = parse_html(html);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("Interpolation"));
-    }
-
-    #[test]
-    fn test_attribute_without_value() {
+    fn test_parse_attribute_without_value() {
         let html = r#"<input disabled />"#;
         let result = parse_html(html).unwrap();
 

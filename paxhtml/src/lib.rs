@@ -42,7 +42,7 @@ pub use paxhtml_parser::{parse_html as parse_html_ast, AstNode, ParseError};
 /// ```
 /// use paxhtml::{parse_html, Document};
 ///
-/// let element = parse_html(r#"<div class="container"><p>Hello, world!</p></div>"#).unwrap();
+/// let element = parse_html(r#"<div class="container"><p>"Hello, world!"</p></div>"#).unwrap();
 /// let doc = Document::new([element]);
 /// let html = doc.write_to_string();
 /// ```
