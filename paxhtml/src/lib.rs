@@ -20,7 +20,7 @@ pub use element::Element;
 #[cfg(feature = "parser")]
 mod eval;
 #[cfg(feature = "parser")]
-pub use eval::{eval_node, EvalError};
+pub use eval::{eval_node, parse_html, EvalError, ParseHtmlError};
 
 mod render_element;
 pub use render_element::RenderElement;
@@ -34,73 +34,3 @@ pub use paxhtml_macro::html;
 // Re-export parser types for convenience
 #[cfg(feature = "parser")]
 pub use paxhtml_parser::{parse_html as parse_html_ast, AstNode, ParseError};
-
-#[cfg(feature = "parser")]
-/// Error type for runtime HTML parsing
-#[derive(Debug)]
-pub enum ParseHtmlError {
-    /// Error parsing the HTML syntax
-    Parse(ParseError),
-    /// Error evaluating the AST (e.g., interpolation not supported)
-    Eval(EvalError),
-}
-
-#[cfg(feature = "parser")]
-impl std::fmt::Display for ParseHtmlError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ParseHtmlError::Parse(e) => write!(f, "Parse error: {}", e),
-            ParseHtmlError::Eval(e) => write!(f, "Evaluation error: {}", e),
-        }
-    }
-}
-
-#[cfg(feature = "parser")]
-impl std::error::Error for ParseHtmlError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            ParseHtmlError::Parse(e) => Some(e),
-            ParseHtmlError::Eval(e) => Some(e),
-        }
-    }
-}
-
-#[cfg(feature = "parser")]
-impl From<ParseError> for ParseHtmlError {
-    fn from(e: ParseError) -> Self {
-        ParseHtmlError::Parse(e)
-    }
-}
-
-#[cfg(feature = "parser")]
-impl From<EvalError> for ParseHtmlError {
-    fn from(e: EvalError) -> Self {
-        ParseHtmlError::Eval(e)
-    }
-}
-
-#[cfg(feature = "parser")]
-/// Parse an HTML string into a runtime [Element] tree.
-///
-/// This function parses HTML at runtime and returns an [Element] tree that can be
-/// used with [Document] or other paxhtml APIs.
-///
-/// # Example
-///
-/// ```
-/// use paxhtml::{parse_html, Document};
-///
-/// let element = parse_html(r#"<div class="container"><p>"Hello, world!"</p></div>"#).unwrap();
-/// let doc = Document::new([element]);
-/// let html = doc.write_to_string();
-/// ```
-///
-/// # Errors
-///
-/// Returns a [ParseHtmlError] if the HTML is malformed or contains features not
-/// supported at runtime (like interpolation syntax).
-pub fn parse_html(html: &str) -> Result<Element, ParseHtmlError> {
-    let ast = paxhtml_parser::parse_html(html)?;
-    let element = eval::eval_node(&ast)?;
-    Ok(element)
-}
