@@ -239,7 +239,12 @@ mod tests {
         let result = parse_html(html).unwrap();
 
         match result {
-            AstNode::Element { name, void, attributes, .. } => {
+            AstNode::Element {
+                name,
+                void,
+                attributes,
+                ..
+            } => {
                 assert_eq!(name, "input");
                 assert!(void);
                 assert_eq!(attributes.len(), 1);

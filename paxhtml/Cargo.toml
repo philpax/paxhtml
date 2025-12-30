@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bumpalo = { workspace = true }
 html-escape = { workspace = true }
 
 paxhtml_macro = { path = "../paxhtml_macro", optional = true }

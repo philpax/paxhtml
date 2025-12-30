@@ -2,31 +2,44 @@ use paxhtml_parser::{AstAttribute, AstNode, AttributeValue, SynAstNode};
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, ToTokens};
+use syn::{parse::Parse, parse::ParseStream, Expr, Token};
 
 // Helper function to check if a name represents a custom component (starts with uppercase)
 fn is_custom_component(name: &str) -> bool {
     name.chars().next().is_some_and(|c| c.is_uppercase())
 }
 
-// Wrapper to allow AstNode to be used in quote! macros
-struct AstNodeRef<'a>(&'a AstNode);
+/// Input format: `in <allocator>; <html>`
+struct HtmlInput {
+    allocator: Expr,
+    node: SynAstNode,
+}
+impl Parse for HtmlInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        // Parse: in <allocator_expr> ;
+        input.parse::<Token![in]>()?;
+        let allocator = input.parse::<Expr>()?;
+        input.parse::<Token![;]>()?;
 
-impl<'a> ToTokens for AstNodeRef<'a> {
-    fn to_tokens(&self, tokens: &mut TokenStream2) {
-        ast_node_to_tokens(self.0, tokens);
+        // Parse the HTML node
+        let node = input.parse::<SynAstNode>()?;
+
+        Ok(HtmlInput { allocator, node })
     }
 }
 
-// Local wrapper to implement ToTokens (avoids orphan rule)
-struct HtmlNode(SynAstNode);
-
-impl ToTokens for HtmlNode {
+// Wrapper to allow code generation with bump allocator
+struct AstNodeWithBump<'a> {
+    bump: &'a Expr,
+    node: &'a AstNode,
+}
+impl<'a> ToTokens for AstNodeWithBump<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream2) {
-        ast_node_to_tokens(&self.0.0, tokens);
+        ast_node_to_tokens_with_bump(self.bump, self.node, tokens);
     }
 }
 
-fn ast_node_to_tokens(node: &AstNode, tokens: &mut TokenStream2) {
+fn ast_node_to_tokens_with_bump(bump: &Expr, node: &AstNode, tokens: &mut TokenStream2) {
     match node {
         AstNode::Element {
             name,
@@ -73,83 +86,120 @@ fn ast_node_to_tokens(node: &AstNode, tokens: &mut TokenStream2) {
 
                 // Add children if present
                 if !children.is_empty() {
-                    let children_refs: Vec<_> = children.iter().map(AstNodeRef).collect();
-                    field_inits.push(quote! { children: vec![#(#children_refs),*] });
+                    let children_tokens: Vec<_> = children
+                        .iter()
+                        .map(|c| AstNodeWithBump { bump, node: c })
+                        .collect();
+                    field_inits.push(quote! {
+                        children: {
+                            let mut __children = bumpalo::collections::Vec::new_in(#bump);
+                            #(__children.push(#children_tokens);)*
+                            __children
+                        }
+                    });
                 }
 
+                // Note: We don't use ..Default::default() because BumpVec fields
+                // can't implement Default (they require an allocator). Custom components
+                // must specify all required fields explicitly.
                 tokens.extend(quote! {
-                    #component_ident(#props_ident {
+                    #component_ident(#bump, #props_ident {
                         #(#field_inits,)*
-                        ..Default::default()
                     })
                 });
             } else {
                 // Regular HTML element
-                let attrs = if attributes.is_empty() {
-                    quote! { vec![] }
+                let attrs_code = if attributes.is_empty() {
+                    quote! { bumpalo::collections::Vec::new_in(#bump) }
                 } else {
-                    let mut attr_tokens = Vec::new();
+                    let mut attr_statements = Vec::new();
                     for attr in attributes {
                         match attr {
                             AstAttribute::Named { name, value } => {
-                                let attr_token = match value {
+                                let attr_statement = match value {
                                     Some(AttributeValue::Expression(expr)) => quote! {
-                                        paxhtml::attr((#name.to_string(), #expr.to_string()))
+                                        __attrs.push(paxhtml::Attribute::new(
+                                            #bump,
+                                            #name,
+                                            &(#expr).to_string()
+                                        ));
                                     },
                                     Some(AttributeValue::Literal(lit)) => quote! {
-                                        paxhtml::attr((#name.to_string(), #lit.to_string()))
+                                        __attrs.push(paxhtml::Attribute::new(#bump, #name, #lit));
                                     },
                                     None => quote! {
-                                        paxhtml::attr(#name.to_string())
+                                        __attrs.push(paxhtml::Attribute::boolean(#bump, #name));
                                     },
                                 };
-                                attr_tokens.push(quote! { attrs.push(#attr_token); });
+                                attr_statements.push(attr_statement);
                             }
                             AstAttribute::Interpolated(expr) => {
-                                attr_tokens.push(quote! { attrs.extend(#expr); });
+                                attr_statements.push(quote! {
+                                    for __a in #expr {
+                                        __attrs.push(__a);
+                                    }
+                                });
                             }
                         }
                     }
                     quote! {{
-                        let mut attrs = Vec::new();
-                        #(#attr_tokens)*
-                        attrs
+                        let mut __attrs = bumpalo::collections::Vec::new_in(#bump);
+                        #(#attr_statements)*
+                        __attrs
                     }}
                 };
 
-                let children_tokens = if children.is_empty() {
-                    quote! { vec![] }
+                let children_code = if children.is_empty() {
+                    quote! { bumpalo::collections::Vec::new_in(#bump) }
                 } else {
-                    let children_refs: Vec<_> = children.iter().map(AstNodeRef).collect();
-                    quote! { [#(#children_refs),*] }
+                    let children_tokens: Vec<_> = children
+                        .iter()
+                        .map(|c| AstNodeWithBump { bump, node: c })
+                        .collect();
+                    quote! {{
+                        let mut __children = bumpalo::collections::Vec::new_in(#bump);
+                        #(__children.push(#children_tokens);)*
+                        __children
+                    }}
                 };
 
+                let name_str = name.as_str();
                 tokens.extend(quote! {
-                    paxhtml::builder::tag(#name, #attrs, #void)(#children_tokens)
+                    paxhtml::Element::Tag {
+                        name: bumpalo::collections::String::from_str_in(#name_str, #bump),
+                        attributes: #attrs_code,
+                        children: #children_code,
+                        void: #void,
+                    }
                 });
             }
         }
         AstNode::Fragment(children) => {
-            let children_refs: Vec<_> = children.iter().map(AstNodeRef).collect();
-            tokens.extend(quote! {
-                paxhtml::Element::from_iter([#(#children_refs),*])
-            });
+            let children_tokens: Vec<_> = children
+                .iter()
+                .map(|c| AstNodeWithBump { bump, node: c })
+                .collect();
+            tokens.extend(quote! {{
+                let mut __children = bumpalo::collections::Vec::new_in(#bump);
+                #(__children.push(#children_tokens);)*
+                paxhtml::Element::Fragment { children: __children }
+            }});
         }
         AstNode::Expression { body, iterator } => {
             if *iterator {
                 tokens.extend(quote! {
-                    paxhtml::Element::from_iter(#body)
+                    paxhtml::Element::from_iter(#bump, #body)
                 });
             } else {
                 tokens.extend(quote! {
-                    paxhtml::Element::from(#body)
+                    paxhtml::IntoElement::into_element(#body, #bump)
                 });
             }
         }
         AstNode::Text(text) => {
             tokens.extend(quote! {
                 paxhtml::Element::Text {
-                    text: #text.to_string()
+                    text: bumpalo::collections::String::from_str_in(#text, #bump)
                 }
             });
         }
@@ -159,10 +209,38 @@ fn ast_node_to_tokens(node: &AstNode, tokens: &mut TokenStream2) {
 #[proc_macro]
 /// Constructs a tree of [`paxhtml::Element`]s from (X)HTML-like syntax, similar to JSX.
 ///
+/// # Syntax
+///
+/// ```ignore
+/// html! { in <allocator>; <element>...</element> }
+/// ```
+///
+/// The allocator is a reference to a [`bumpalo::Bump`] allocator that will be used
+/// for all allocations.
+///
 /// Interpolation is supported using `{}` for expressions and `#{...}` for iterators.
 ///
 /// Fragments are supported using `<>...</>` syntax.
+///
+/// # Example
+///
+/// ```ignore
+/// use paxhtml::{html, Bump};
+///
+/// let bump = Bump::new();
+/// let element = html! { in &bump;
+///     <div class="container">
+///         <h1>"Hello, World!"</h1>
+///     </div>
+/// };
+/// ```
 pub fn html(input: TokenStream) -> TokenStream {
-    let node = HtmlNode(syn::parse_macro_input!(input as SynAstNode));
-    quote! { #node }.into()
+    let HtmlInput { allocator, node } = syn::parse_macro_input!(input as HtmlInput);
+
+    let wrapper = AstNodeWithBump {
+        bump: &allocator,
+        node: &node.0,
+    };
+
+    quote! { #wrapper }.into()
 }

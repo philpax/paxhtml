@@ -1,68 +1,80 @@
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+use bumpalo::collections::String as BumpString;
+use bumpalo::collections::Vec as BumpVec;
+use bumpalo::Bump;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 /// A key-value pair for an HTML attribute.
-pub struct Attribute {
+pub struct Attribute<'bump> {
     /// The key of the attribute.
-    pub key: String,
+    pub key: BumpString<'bump>,
     /// The value of the attribute.
-    pub value: Option<String>,
+    pub value: Option<BumpString<'bump>>,
 }
-/// Create an attribute from a value that implements [Into<Attribute>].
-pub fn attr(value: impl Into<Attribute>) -> Attribute {
-    value.into()
-}
-impl From<&str> for Attribute {
-    fn from(s: &str) -> Self {
+impl<'bump> Attribute<'bump> {
+    /// Create a new attribute with a key and value.
+    pub fn new(bump: &'bump Bump, key: &str, value: &str) -> Self {
         Attribute {
-            key: s.to_string(),
+            key: BumpString::from_str_in(key, bump),
+            value: Some(BumpString::from_str_in(value, bump)),
+        }
+    }
+
+    /// Create a boolean attribute (no value).
+    pub fn boolean(bump: &'bump Bump, key: &str) -> Self {
+        Attribute {
+            key: BumpString::from_str_in(key, bump),
             value: None,
         }
     }
-}
-impl From<String> for Attribute {
-    fn from(s: String) -> Self {
+
+    /// Create an attribute with an optional value.
+    pub fn with_optional_value(bump: &'bump Bump, key: &str, value: Option<&str>) -> Self {
         Attribute {
-            key: s,
-            value: None,
+            key: BumpString::from_str_in(key, bump),
+            value: value.map(|v| BumpString::from_str_in(v, bump)),
         }
     }
 }
-impl From<Attribute> for (String, Option<String>) {
-    fn from(a: Attribute) -> Self {
-        (a.key, a.value)
+
+/// Trait for types that can be converted into an Attribute with a bump allocator.
+pub trait IntoAttribute<'bump> {
+    /// Convert this value into an Attribute using the given bump allocator.
+    fn into_attribute(self, bump: &'bump Bump) -> Attribute<'bump>;
+}
+impl<'bump> IntoAttribute<'bump> for Attribute<'bump> {
+    fn into_attribute(self, _bump: &'bump Bump) -> Attribute<'bump> {
+        self
     }
 }
-impl From<(&str, &str)> for Attribute {
-    fn from((key, value): (&str, &str)) -> Self {
-        Attribute {
-            key: key.to_string(),
-            value: Some(value.to_string()),
-        }
+impl<'bump> IntoAttribute<'bump> for &str {
+    fn into_attribute(self, bump: &'bump Bump) -> Attribute<'bump> {
+        Attribute::boolean(bump, self)
     }
 }
-impl From<(&str, String)> for Attribute {
-    fn from((key, value): (&str, String)) -> Self {
-        Attribute {
-            key: key.to_string(),
-            value: Some(value),
-        }
+impl<'bump> IntoAttribute<'bump> for (&str, &str) {
+    fn into_attribute(self, bump: &'bump Bump) -> Attribute<'bump> {
+        Attribute::new(bump, self.0, self.1)
     }
 }
-impl From<(String, &str)> for Attribute {
-    fn from((key, value): (String, &str)) -> Self {
-        Attribute {
-            key,
-            value: Some(value.to_string()),
-        }
+impl<'bump> IntoAttribute<'bump> for (&str, String) {
+    fn into_attribute(self, bump: &'bump Bump) -> Attribute<'bump> {
+        Attribute::new(bump, self.0, &self.1)
     }
 }
-impl From<(String, String)> for Attribute {
-    fn from((key, value): (String, String)) -> Self {
-        Attribute {
-            key,
-            value: Some(value),
-        }
+impl<'bump> IntoAttribute<'bump> for (String, &str) {
+    fn into_attribute(self, bump: &'bump Bump) -> Attribute<'bump> {
+        Attribute::new(bump, &self.0, self.1)
     }
+}
+impl<'bump> IntoAttribute<'bump> for (String, String) {
+    fn into_attribute(self, bump: &'bump Bump) -> Attribute<'bump> {
+        Attribute::new(bump, &self.0, &self.1)
+    }
+}
+
+/// Create an attribute from a value that implements [IntoAttribute].
+pub fn attr<'bump>(bump: &'bump Bump, value: impl IntoAttribute<'bump>) -> Attribute<'bump> {
+    value.into_attribute(bump)
 }
 
 /// Error type for attribute parsing failures
@@ -144,20 +156,19 @@ impl std::fmt::Display for AttributeParseError {
 }
 impl std::error::Error for AttributeParseError {}
 
-impl Attribute {
+impl<'bump> Attribute<'bump> {
     /// Parse a string of attributes into a vector of attributes.
     ///
     /// ## Example
     ///
     /// ```rust
-    /// use paxhtml::Attribute;
+    /// use paxhtml::{Attribute, Bump};
     ///
-    /// let attributes = Attribute::parse_from_str(r#"id="my-id" class="my-class my-class-2" some-attr"#).unwrap();
-    /// assert_eq!(attributes, vec![
-    ///     ("id", "my-id").into(),
-    ///     ("class", "my-class my-class-2").into(),
-    ///     "some-attr".into()
-    /// ]);
+    /// let bump = Bump::new();
+    /// let attributes = Attribute::parse_from_str(&bump, r#"id="my-id" class="my-class my-class-2" some-attr"#).unwrap();
+    /// assert_eq!(attributes.len(), 3);
+    /// assert_eq!(attributes[0].key.as_str(), "id");
+    /// assert_eq!(attributes[0].value.as_ref().map(|s| s.as_str()), Some("my-id"));
     /// ```
     ///
     /// ## Errors
@@ -165,7 +176,10 @@ impl Attribute {
     /// Returns an error if the string does not respect the HTML attribute syntax.
     /// The error will contain detailed information about what caused the parsing failure,
     /// including the position of the error and the context of what was being parsed.
-    pub fn parse_from_str(s: &str) -> Result<Vec<Self>, AttributeParseError> {
+    pub fn parse_from_str(
+        bump: &'bump Bump,
+        s: &str,
+    ) -> Result<BumpVec<'bump, Self>, AttributeParseError> {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         enum ParseState {
             BeforeAttribute,
@@ -176,10 +190,10 @@ impl Attribute {
             InUnquotedValue,
         }
 
-        let mut attributes = Vec::new();
+        let mut attributes = BumpVec::new_in(bump);
         let mut chars = s.chars().enumerate().peekable();
         let mut current_key = String::new();
-        let mut current_value = None;
+        let mut current_value: Option<String> = None;
         let mut in_quotes = false;
         let mut quote_char = None;
         let mut quote_start_pos = 0;
@@ -222,10 +236,7 @@ impl Attribute {
                                 state = ParseState::BeforeEquals;
                             } else {
                                 // This is a boolean attribute
-                                attributes.push(Attribute {
-                                    key: current_key.clone(),
-                                    value: None,
-                                });
+                                attributes.push(Attribute::boolean(bump, &current_key));
                                 current_key.clear();
                                 state = ParseState::BeforeAttribute;
                             }
@@ -280,11 +291,13 @@ impl Attribute {
                 ParseState::InQuotedValue => {
                     if Some(c) == quote_char {
                         in_quotes = false;
-                        attributes.push(Attribute {
-                            key: current_key.clone(),
-                            value: current_value.take(),
-                        });
+                        attributes.push(Attribute::with_optional_value(
+                            bump,
+                            &current_key,
+                            current_value.as_deref(),
+                        ));
                         current_key.clear();
+                        current_value = None;
                         state = ParseState::BeforeAttribute;
                     } else if let Some(ref mut value) = current_value {
                         value.push(c);
@@ -292,11 +305,13 @@ impl Attribute {
                 }
                 ParseState::InUnquotedValue => match c {
                     ' ' | '\t' | '\n' => {
-                        attributes.push(Attribute {
-                            key: current_key.clone(),
-                            value: current_value.take(),
-                        });
+                        attributes.push(Attribute::with_optional_value(
+                            bump,
+                            &current_key,
+                            current_value.as_deref(),
+                        ));
                         current_key.clear();
+                        current_value = None;
                         state = ParseState::BeforeAttribute;
                     }
                     _ => {
@@ -325,10 +340,11 @@ impl Attribute {
         }
 
         if !current_key.is_empty() {
-            attributes.push(Attribute {
-                key: current_key,
-                value: current_value,
-            });
+            attributes.push(Attribute::with_optional_value(
+                bump,
+                &current_key,
+                current_value.as_deref(),
+            ));
         }
 
         Ok(attributes)
@@ -340,46 +356,67 @@ mod tests {
 
     #[test]
     fn test_parse_single_attribute() {
-        let attributes = Attribute::parse_from_str("id=\"test\"").unwrap();
+        let bump = Bump::new();
+        let attributes = Attribute::parse_from_str(&bump, "id=\"test\"").unwrap();
         assert_eq!(attributes.len(), 1);
-        assert_eq!(attributes[0].key, "id");
-        assert_eq!(attributes[0].value, Some("test".to_string()));
+        assert_eq!(attributes[0].key.as_str(), "id");
+        assert_eq!(
+            attributes[0].value.as_ref().map(|s| s.as_str()),
+            Some("test")
+        );
     }
 
     #[test]
     fn test_parse_multiple_attributes() {
+        let bump = Bump::new();
         let attributes =
-            Attribute::parse_from_str("id=\"test\" class=\"btn btn-primary\"").unwrap();
+            Attribute::parse_from_str(&bump, "id=\"test\" class=\"btn btn-primary\"").unwrap();
         assert_eq!(attributes.len(), 2);
-        assert_eq!(attributes[0].key, "id");
-        assert_eq!(attributes[0].value, Some("test".to_string()));
-        assert_eq!(attributes[1].key, "class");
-        assert_eq!(attributes[1].value, Some("btn btn-primary".to_string()));
+        assert_eq!(attributes[0].key.as_str(), "id");
+        assert_eq!(
+            attributes[0].value.as_ref().map(|s| s.as_str()),
+            Some("test")
+        );
+        assert_eq!(attributes[1].key.as_str(), "class");
+        assert_eq!(
+            attributes[1].value.as_ref().map(|s| s.as_str()),
+            Some("btn btn-primary")
+        );
     }
 
     #[test]
     fn test_parse_boolean_attribute() {
-        let attributes = Attribute::parse_from_str("disabled").unwrap();
+        let bump = Bump::new();
+        let attributes = Attribute::parse_from_str(&bump, "disabled").unwrap();
         assert_eq!(attributes.len(), 1);
-        assert_eq!(attributes[0].key, "disabled");
+        assert_eq!(attributes[0].key.as_str(), "disabled");
         assert_eq!(attributes[0].value, None);
     }
 
     #[test]
     fn test_parse_mixed_attributes() {
-        let attributes = Attribute::parse_from_str("id=\"test\" disabled class=\"btn\"").unwrap();
+        let bump = Bump::new();
+        let attributes =
+            Attribute::parse_from_str(&bump, "id=\"test\" disabled class=\"btn\"").unwrap();
         assert_eq!(attributes.len(), 3);
-        assert_eq!(attributes[0].key, "id");
-        assert_eq!(attributes[0].value, Some("test".to_string()));
-        assert_eq!(attributes[1].key, "disabled");
+        assert_eq!(attributes[0].key.as_str(), "id");
+        assert_eq!(
+            attributes[0].value.as_ref().map(|s| s.as_str()),
+            Some("test")
+        );
+        assert_eq!(attributes[1].key.as_str(), "disabled");
         assert_eq!(attributes[1].value, None);
-        assert_eq!(attributes[2].key, "class");
-        assert_eq!(attributes[2].value, Some("btn".to_string()));
+        assert_eq!(attributes[2].key.as_str(), "class");
+        assert_eq!(
+            attributes[2].value.as_ref().map(|s| s.as_str()),
+            Some("btn")
+        );
     }
 
     #[test]
     fn test_parse_error_unclosed_quote() {
-        let result = Attribute::parse_from_str("id=\"test");
+        let bump = Bump::new();
+        let result = Attribute::parse_from_str(&bump, "id=\"test");
         match result {
             Err(AttributeParseError::UnclosedQuote {
                 quote,
@@ -396,7 +433,8 @@ mod tests {
 
     #[test]
     fn test_parse_error_invalid_syntax() {
-        let result = Attribute::parse_from_str("=value");
+        let bump = Bump::new();
+        let result = Attribute::parse_from_str(&bump, "=value");
         match result {
             Err(AttributeParseError::InvalidSyntax {
                 unexpected,
@@ -413,25 +451,38 @@ mod tests {
 
     #[test]
     fn test_parse_with_single_quotes() {
-        let attributes = Attribute::parse_from_str("id='test'").unwrap();
+        let bump = Bump::new();
+        let attributes = Attribute::parse_from_str(&bump, "id='test'").unwrap();
         assert_eq!(attributes.len(), 1);
-        assert_eq!(attributes[0].key, "id");
-        assert_eq!(attributes[0].value, Some("test".to_string()));
+        assert_eq!(attributes[0].key.as_str(), "id");
+        assert_eq!(
+            attributes[0].value.as_ref().map(|s| s.as_str()),
+            Some("test")
+        );
     }
 
     #[test]
     fn test_parse_with_whitespace() {
-        let attributes = Attribute::parse_from_str("  id=\"test\"  \n  class=\"btn\"  ").unwrap();
+        let bump = Bump::new();
+        let attributes =
+            Attribute::parse_from_str(&bump, "  id=\"test\"  \n  class=\"btn\"  ").unwrap();
         assert_eq!(attributes.len(), 2);
-        assert_eq!(attributes[0].key, "id");
-        assert_eq!(attributes[0].value, Some("test".to_string()));
-        assert_eq!(attributes[1].key, "class");
-        assert_eq!(attributes[1].value, Some("btn".to_string()));
+        assert_eq!(attributes[0].key.as_str(), "id");
+        assert_eq!(
+            attributes[0].value.as_ref().map(|s| s.as_str()),
+            Some("test")
+        );
+        assert_eq!(attributes[1].key.as_str(), "class");
+        assert_eq!(
+            attributes[1].value.as_ref().map(|s| s.as_str()),
+            Some("btn")
+        );
     }
 
     #[test]
     fn test_parse_error_unclosed_quote_with_context() {
-        let result = Attribute::parse_from_str("id=\"test class='value");
+        let bump = Bump::new();
+        let result = Attribute::parse_from_str(&bump, "id=\"test class='value");
         match result {
             Err(AttributeParseError::UnclosedQuote {
                 quote,
@@ -448,7 +499,8 @@ mod tests {
 
     #[test]
     fn test_parse_error_invalid_syntax_with_context() {
-        let result = Attribute::parse_from_str("=invalid");
+        let bump = Bump::new();
+        let result = Attribute::parse_from_str(&bump, "=invalid");
         match result {
             Err(AttributeParseError::InvalidSyntax {
                 unexpected,
@@ -465,7 +517,8 @@ mod tests {
 
     #[test]
     fn test_parse_error_invalid_unquoted_value() {
-        let result = Attribute::parse_from_str("id=test!");
+        let bump = Bump::new();
+        let result = Attribute::parse_from_str(&bump, "id=test!");
         match result {
             Err(AttributeParseError::InvalidSyntax {
                 unexpected,
@@ -482,11 +535,15 @@ mod tests {
 
     #[test]
     fn test_parse_space_after_key() {
-        let attributes = Attribute::parse_from_str(r#"width ="150" height="80""#).unwrap();
+        let bump = Bump::new();
+        let attributes = Attribute::parse_from_str(&bump, r#"width ="150" height="80""#).unwrap();
         assert_eq!(attributes.len(), 2);
-        assert_eq!(attributes[0].key, "width");
-        assert_eq!(attributes[0].value, Some("150".to_string()));
-        assert_eq!(attributes[1].key, "height");
-        assert_eq!(attributes[1].value, Some("80".to_string()));
+        assert_eq!(attributes[0].key.as_str(), "width");
+        assert_eq!(
+            attributes[0].value.as_ref().map(|s| s.as_str()),
+            Some("150")
+        );
+        assert_eq!(attributes[1].key.as_str(), "height");
+        assert_eq!(attributes[1].value.as_ref().map(|s| s.as_str()), Some("80"));
     }
 }

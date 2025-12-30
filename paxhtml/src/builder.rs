@@ -1,44 +1,67 @@
 //! Implements a builder DSL for creating HTML documents through a series of functions.
 
-pub use super::{Attribute, Document, Element};
+use bumpalo::collections::String as BumpString;
+use bumpalo::collections::Vec as BumpVec;
+use bumpalo::Bump;
 
-/// Create a text element from a value that implements [Into<String>].
-pub fn text(text: impl Into<String>) -> Element {
-    Element::from(text.into())
+pub use super::{Attribute, Document, Element, IntoElement};
+
+/// Create a text element from a string.
+pub fn text<'bump>(bump: &'bump Bump, text: &str) -> Element<'bump> {
+    Element::Text {
+        text: BumpString::from_str_in(text, bump),
+    }
+}
+
+/// Create a raw HTML element from a string.
+pub fn raw<'bump>(bump: &'bump Bump, html: &str) -> Element<'bump> {
+    Element::Raw {
+        html: BumpString::from_str_in(html, bump),
+    }
 }
 
 /// Create a tag element from a name, attributes, and a boolean indicating whether the tag is a void
 /// element (i.e. doesn't have a closing tag).
 ///
 /// The children are passed in as a single argument to the returned function.
-pub fn tag<E: Into<Element>>(
-    name: impl Into<String>,
-    attributes: impl IntoIterator<Item = Attribute>,
+pub fn tag<'bump, E: IntoElement<'bump>>(
+    bump: &'bump Bump,
+    name: &str,
+    attributes: impl IntoIterator<Item = Attribute<'bump>>,
     void: bool,
-) -> impl FnOnce(E) -> Element {
+) -> impl FnOnce(E) -> Element<'bump> {
+    let name = BumpString::from_str_in(name, bump);
+    let attributes: BumpVec<'bump, Attribute<'bump>> = BumpVec::from_iter_in(attributes, bump);
+
     move |children: E| {
-        let children = children.into();
-        let children = if let Element::Fragment { children } = children {
-            children
-        } else if !children.is_empty() {
-            vec![children]
-        } else {
-            vec![]
+        let children = children.into_element(bump);
+        let children = match children {
+            Element::Fragment { children } => children,
+            Element::Empty => BumpVec::new_in(bump),
+            other => {
+                let mut v = BumpVec::with_capacity_in(1, bump);
+                v.push(other);
+                v
+            }
         };
         Element::Tag {
-            name: name.into(),
-            attributes: attributes.into_iter().collect(),
+            name,
+            attributes,
             children,
             void,
         }
     }
 }
+
 /// Create a doctype element with a list of attributes.
-pub fn doctype(attributes: impl IntoIterator<Item = Attribute>) -> Element {
+pub fn doctype<'bump>(
+    bump: &'bump Bump,
+    attributes: impl IntoIterator<Item = Attribute<'bump>>,
+) -> Element<'bump> {
     Element::Tag {
-        name: "!DOCTYPE".into(),
-        attributes: attributes.into_iter().collect(),
-        children: vec![],
+        name: BumpString::from_str_in("!DOCTYPE", bump),
+        attributes: BumpVec::from_iter_in(attributes, bump),
+        children: BumpVec::new_in(bump),
         void: true,
     }
 }
@@ -47,8 +70,11 @@ macro_rules! non_void_builders {
     ($($tag_ident:ident),*) => {
         $(
             #[doc = concat!("Create a non-void element with the tag name `", stringify!($tag_ident), "` and a list of attributes.\n\nThe children are passed in as a single argument to the returned function.")]
-            pub fn $tag_ident<E: Into<Element>>(attributes: impl IntoIterator<Item = Attribute>) -> impl FnOnce(E) -> Element {
-                tag(stringify!($tag_ident), attributes, false)
+            pub fn $tag_ident<'bump, E: IntoElement<'bump>>(
+                bump: &'bump Bump,
+                attributes: impl IntoIterator<Item = Attribute<'bump>>,
+            ) -> impl FnOnce(E) -> Element<'bump> {
+                tag(bump, stringify!($tag_ident), attributes, false)
             }
 
         )*
@@ -68,8 +94,11 @@ macro_rules! void_builders {
     ($($tag_ident:ident),*) => {
         $(
             #[doc = concat!("Create a void element with the tag name `", stringify!($tag_ident), "` and a list of attributes.")]
-            pub fn $tag_ident(attributes: impl IntoIterator<Item = Attribute>) -> Element {
-                tag(stringify!($tag_ident), attributes, true)([])
+            pub fn $tag_ident<'bump>(
+                bump: &'bump Bump,
+                attributes: impl IntoIterator<Item = Attribute<'bump>>,
+            ) -> Element<'bump> {
+                tag(bump, stringify!($tag_ident), attributes, true)(Element::Empty)
             }
         )*
         /// A list of all void tags.

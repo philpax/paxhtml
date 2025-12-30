@@ -1,5 +1,5 @@
 use mlua::LuaSerdeExt;
-use paxhtml::{Attribute, Element};
+use paxhtml::{OwnedAttribute, OwnedElement};
 
 pub fn register(lua: &mlua::Lua) -> mlua::Result<()> {
     let table = lua.create_table()?;
@@ -26,20 +26,18 @@ pub fn register(lua: &mlua::Lua) -> mlua::Result<()> {
         "fragment",
         lua.create_function(move |lua, children: mlua::Value| {
             let children = process_children_value(lua, children)?;
-            lua.to_value(&paxhtml::Element::Fragment { children })
+            lua.to_value(&OwnedElement::Fragment { children })
         })?,
     )?;
 
     table.set(
         "text",
-        lua.create_function(move |lua, text: String| {
-            lua.to_value(&paxhtml::Element::Text { text })
-        })?,
+        lua.create_function(move |lua, text: String| lua.to_value(&OwnedElement::Text { text }))?,
     )?;
 
     table.set(
         "empty",
-        lua.create_function(move |lua, _: ()| lua.to_value(&paxhtml::Element::Empty))?,
+        lua.create_function(move |lua, _: ()| lua.to_value(&OwnedElement::Empty))?,
     )?;
 
     lua.globals().set("h", table)?;
@@ -67,12 +65,12 @@ fn build_element_function(
                         "Invalid attribute key".to_string(),
                     ));
                 };
-                Ok(Attribute { key, value })
+                Ok(OwnedAttribute { key, value })
             })
-            .collect::<mlua::Result<Vec<Attribute>>>()?;
+            .collect::<mlua::Result<Vec<OwnedAttribute>>>()?;
 
         if void {
-            Ok(lua.to_value(&paxhtml::Element::Tag {
+            Ok(lua.to_value(&OwnedElement::Tag {
                 name: name.clone(),
                 attributes: attributes.clone(),
                 children: vec![],
@@ -83,7 +81,7 @@ fn build_element_function(
                 move |lua, children: mlua::Value| {
                     let children = process_children_value(lua, children)?;
 
-                    lua.to_value(&paxhtml::Element::Tag {
+                    lua.to_value(&OwnedElement::Tag {
                         name: name.clone(),
                         attributes: attributes.clone(),
                         children,
@@ -95,9 +93,12 @@ fn build_element_function(
     })
 }
 
-fn process_children_value(lua: &mlua::Lua, children: mlua::Value) -> mlua::Result<Vec<Element>> {
+fn process_children_value(
+    lua: &mlua::Lua,
+    children: mlua::Value,
+) -> mlua::Result<Vec<OwnedElement>> {
     let children = if let mlua::Value::Table(table_children) = &children {
-        if let Ok(element) = lua.from_value::<Element>(children.clone()) {
+        if let Ok(element) = lua.from_value::<OwnedElement>(children.clone()) {
             return Ok(vec![element]);
         }
 
@@ -105,7 +106,7 @@ fn process_children_value(lua: &mlua::Lua, children: mlua::Value) -> mlua::Resul
         for v in table_children.sequence_values() {
             let v: mlua::Value = v?;
             if v.is_string() {
-                output.push(Element::Text {
+                output.push(OwnedElement::Text {
                     text: v.to_string()?,
                 });
             } else if v.is_table() {
@@ -119,7 +120,7 @@ fn process_children_value(lua: &mlua::Lua, children: mlua::Value) -> mlua::Resul
         }
         output
     } else if let mlua::Value::String(string) = children {
-        vec![Element::Text {
+        vec![OwnedElement::Text {
             text: string.to_string_lossy(),
         }]
     } else {
