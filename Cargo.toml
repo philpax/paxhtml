@@ -1,5 +1,5 @@
 [workspace]
-members = ["paxhtml", "paxhtml_macro", "paxhtml_parser", "paxhtml_mlua", "paxhtml_tailwind"]
+members = ["paxhtml", "paxhtml_macro", "paxhtml_parser", "paxhtml_tailwind"]
 resolver = "2"
 
 [workspace.dependencies]
