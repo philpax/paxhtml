@@ -78,7 +78,7 @@ impl From<EvalError> for ParseHtmlError {
 /// # Example
 ///
 /// ```
-/// use paxhtml::{parse_html, Document, Bump};
+/// use paxhtml::{bumpalo::Bump, parse_html, Document};
 ///
 /// let bump = Bump::new();
 /// let element = parse_html(&bump, r#"<div class="container"><p>"Hello, world!"</p></div>"#).unwrap();

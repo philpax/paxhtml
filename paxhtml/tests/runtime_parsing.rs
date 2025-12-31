@@ -1,4 +1,5 @@
-use paxhtml::{parse_html, Bump, Document};
+use bumpalo::Bump;
+use paxhtml::{parse_html, Document};
 
 #[test]
 fn test_runtime_parse_simple_html() {

@@ -5,13 +5,13 @@
 //! which will implicitly convert them to [RenderElement]s for rendering. A HTML string
 //! can then be generated through [Document::write_to_string] or similar methods.
 //!
-//! All allocations are done through a bump allocator ([Bump]) which must be passed
+//! All allocations are done through a bump allocator ([bumpalo::Bump]) which must be passed
 //! to all element-creating functions.
 //!
 //! # Example
 //!
 //! ```
-//! use paxhtml::{html, Document, Bump};
+//! use paxhtml::{bumpalo::Bump, html, Document};
 //!
 //! let bump = Bump::new();
 //! let element = html! { in &bump;
@@ -27,7 +27,7 @@ pub mod builder;
 pub mod util;
 
 // Re-export bumpalo for convenience
-pub use bumpalo::Bump;
+pub use bumpalo;
 
 mod attribute;
 pub use attribute::{attr, Attribute, AttributeParseError, IntoAttribute};

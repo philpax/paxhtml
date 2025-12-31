@@ -162,7 +162,7 @@ impl<'bump> Attribute<'bump> {
     /// ## Example
     ///
     /// ```rust
-    /// use paxhtml::{Attribute, Bump};
+    /// use paxhtml::{bumpalo::Bump, Attribute};
     ///
     /// let bump = Bump::new();
     /// let attributes = Attribute::parse_from_str(&bump, r#"id="my-id" class="my-class my-class-2" some-attr"#).unwrap();
