@@ -41,6 +41,33 @@ pub enum Element<'bump> {
     },
 }
 
+/// Trait for types that can provide a default value given a bump allocator.
+///
+/// This is used by the `html!` macro to support default prop values for custom components.
+/// Component props structs should implement this trait to allow omitting fields in the macro.
+///
+/// # Example
+///
+/// ```ignore
+/// struct MyComponentProps<'bump> {
+///     title: String,
+///     children: BumpVec<'bump, Element<'bump>>,
+/// }
+///
+/// impl<'bump> DefaultIn<'bump> for MyComponentProps<'bump> {
+///     fn default_in(bump: &'bump Bump) -> Self {
+///         Self {
+///             title: String::new(),
+///             children: BumpVec::new_in(bump),
+///         }
+///     }
+/// }
+/// ```
+pub trait DefaultIn<'bump> {
+    /// Create a default value using the given bump allocator.
+    fn default_in(bump: &'bump Bump) -> Self;
+}
+
 /// Trait for types that can be converted into an Element with a bump allocator.
 pub trait IntoElement<'bump> {
     /// Convert this value into an Element using the given bump allocator.

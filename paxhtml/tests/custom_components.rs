@@ -1,16 +1,21 @@
 use bumpalo::collections::String as BumpString;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump;
-use paxhtml::{html, Element};
-
-// Note: Custom component props can't use ..Default::default() when they contain BumpVec
-// because BumpVec doesn't implement Default (it requires an allocator).
-// The macro will specify all fields explicitly.
+use paxhtml::{html, DefaultIn, Element};
 
 struct MyCustomElementProps<'bump> {
     cool: i32,
     test: String,
     children: BumpVec<'bump, Element<'bump>>,
+}
+impl<'bump> DefaultIn<'bump> for MyCustomElementProps<'bump> {
+    fn default_in(bump: &'bump Bump) -> Self {
+        Self {
+            cool: 0,
+            test: String::new(),
+            children: BumpVec::new_in(bump),
+        }
+    }
 }
 
 #[allow(non_snake_case)]
@@ -44,6 +49,11 @@ fn MyCustomElement<'bump>(bump: &'bump Bump, props: MyCustomElementProps<'bump>)
 
 struct SimpleProps {
     enabled: bool,
+}
+impl DefaultIn<'_> for SimpleProps {
+    fn default_in(_bump: &Bump) -> Self {
+        Self { enabled: false }
+    }
 }
 
 #[allow(non_snake_case)]
@@ -143,6 +153,47 @@ fn test_component_with_explicit_false() {
 }
 
 #[test]
+fn test_component_with_default_props() {
+    let bump = Bump::new();
+
+    // Only specify 'cool', let 'test' and 'children' use defaults
+    let result = html! { in &bump;
+        <MyCustomElement cool={42} />
+    };
+
+    if let Element::Tag { name, children, .. } = &result {
+        assert_eq!(name.as_str(), "div");
+        assert_eq!(children.len(), 2);
+
+        // First child should be p with default test value (empty string)
+        if let Element::Tag {
+            name,
+            children: p_children,
+            ..
+        } = &children[0]
+        {
+            assert_eq!(name.as_str(), "p");
+            if let Element::Text { text } = &p_children[0] {
+                assert_eq!(text.as_str(), "cool: 42, test: ");
+            }
+        }
+
+        // Second child should be div with no children (default empty vec)
+        if let Element::Tag {
+            name,
+            children: div_children,
+            ..
+        } = &children[1]
+        {
+            assert_eq!(name.as_str(), "div");
+            assert_eq!(div_children.len(), 0);
+        }
+    } else {
+        panic!("Expected Tag element");
+    }
+}
+
+#[test]
 fn test_mix_of_regular_html_and_custom_components() {
     let bump = Bump::new();
 
@@ -196,6 +247,13 @@ fn test_component_with_kebab_case_attribute() {
 
     struct KebabComponentProps {
         my_attribute: String,
+    }
+    impl DefaultIn<'_> for KebabComponentProps {
+        fn default_in(_bump: &Bump) -> Self {
+            Self {
+                my_attribute: String::new(),
+            }
+        }
     }
 
     #[allow(non_snake_case)]

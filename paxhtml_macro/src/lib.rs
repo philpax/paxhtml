@@ -99,12 +99,11 @@ fn ast_node_to_tokens_with_bump(bump: &Expr, node: &AstNode, tokens: &mut TokenS
                     });
                 }
 
-                // Note: We don't use ..Default::default() because BumpVec fields
-                // can't implement Default (they require an allocator). Custom components
-                // must specify all required fields explicitly.
+                // Use struct update syntax with default_in for unspecified fields
                 tokens.extend(quote! {
                     #component_ident(#bump, #props_ident {
                         #(#field_inits,)*
+                        ..paxhtml::DefaultIn::default_in(#bump)
                     })
                 });
             } else {
