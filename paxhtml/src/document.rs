@@ -3,7 +3,7 @@ use std::path::Path;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump;
 
-use crate::{routing::RoutePath, Element, RenderElement};
+use crate::{builder, routing::RoutePath, Element, RenderElement};
 
 #[derive(Debug)]
 /// A document is a collection of elements that will be rendered to HTML.
@@ -19,6 +19,16 @@ impl<'bump> Document<'bump> {
         Document {
             children: RenderElement::from_elements(bump, children),
         }
+    }
+
+    /// Create a new document with a doctype declaration followed by the given element.
+    ///
+    /// This is equivalent to `Document::new(bump, [doctype(bump, [attr(bump, "html")]), element])`.
+    pub fn new_with_doctype(bump: &'bump Bump, element: Element<'bump>) -> Self {
+        Self::new(
+            bump,
+            [builder::doctype(bump, [crate::attr(bump, "html")]), element],
+        )
     }
 
     /// Write the document to a writer.
@@ -95,5 +105,19 @@ mod tests {
         );
         let output = input_elements.write_to_string().unwrap();
         assert_eq!(output, "<div>\n  <p>Hello</p>\n  <p>World</p>\n</div>");
+    }
+
+    #[test]
+    fn test_new_with_doctype() {
+        let bump = Bump::new();
+        let input = Document::new_with_doctype(
+            &bump,
+            html(&bump, [])(body(&bump, [])(text(&bump, "Hello"))),
+        );
+        let output = input.write_to_string().unwrap();
+        assert_eq!(
+            output,
+            "<!DOCTYPE html><html>\n  <body>Hello</body>\n</html>"
+        );
     }
 }
