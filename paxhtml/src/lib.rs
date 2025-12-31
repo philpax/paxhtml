@@ -47,9 +47,6 @@ pub use eval::{eval_node, parse_html, EvalError, ParseHtmlError};
 mod render_element;
 pub use render_element::RenderElement;
 
-mod owned;
-pub use owned::{OwnedAttribute, OwnedElement};
-
 mod routing;
 pub use routing::RoutePath;
 
