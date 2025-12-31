@@ -84,18 +84,14 @@ fn ast_node_to_tokens_with_bump(bump: &Expr, node: &AstNode, tokens: &mut TokenS
                     }
                 }
 
-                // Add children if present
+                // Add children if present (as Option<Element> using from_iter)
                 if !children.is_empty() {
                     let children_tokens: Vec<_> = children
                         .iter()
                         .map(|c| AstNodeWithBump { bump, node: c })
                         .collect();
                     field_inits.push(quote! {
-                        children: {
-                            let mut __children = bumpalo::collections::Vec::new_in(#bump);
-                            #(__children.push(#children_tokens);)*
-                            __children
-                        }
+                        children: Some(paxhtml::Element::from_iter(#bump, [#(#children_tokens),*]))
                     });
                 }
 

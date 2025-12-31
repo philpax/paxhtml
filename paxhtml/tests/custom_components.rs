@@ -6,44 +6,25 @@ use paxhtml::{html, DefaultIn, Element};
 struct MyCustomElementProps<'bump> {
     cool: i32,
     test: String,
-    children: BumpVec<'bump, Element<'bump>>,
+    children: Option<Element<'bump>>,
 }
 impl<'bump> DefaultIn<'bump> for MyCustomElementProps<'bump> {
-    fn default_in(bump: &'bump Bump) -> Self {
+    fn default_in(_bump: &'bump Bump) -> Self {
         Self {
             cool: 0,
             test: String::new(),
-            children: BumpVec::new_in(bump),
+            children: None,
         }
     }
 }
 
 #[allow(non_snake_case)]
 fn MyCustomElement<'bump>(bump: &'bump Bump, props: MyCustomElementProps<'bump>) -> Element<'bump> {
-    let mut p_children = BumpVec::new_in(bump);
-    p_children.push(Element::Text {
-        text: BumpString::from_str_in(&format!("cool: {}, test: {}", props.cool, props.test), bump),
-    });
-
-    let mut div_children = BumpVec::new_in(bump);
-    div_children.push(Element::Tag {
-        name: BumpString::from_str_in("p", bump),
-        attributes: BumpVec::new_in(bump),
-        children: p_children,
-        void: false,
-    });
-    div_children.push(Element::Tag {
-        name: BumpString::from_str_in("div", bump),
-        attributes: BumpVec::new_in(bump),
-        children: props.children,
-        void: false,
-    });
-
-    Element::Tag {
-        name: BumpString::from_str_in("div", bump),
-        attributes: BumpVec::new_in(bump),
-        children: div_children,
-        void: false,
+    html! { in bump;
+        <div>
+            <p>{format!("cool: {}, test: {}", props.cool, props.test)}</p>
+            <div>{props.children}</div>
+        </div>
     }
 }
 
@@ -100,7 +81,7 @@ fn test_component_with_attributes_and_children() {
             }
         }
 
-        // Second child should be div with h1 and p children
+        // Second child should be div containing a Fragment with h1 and p children
         if let Element::Tag {
             name,
             children: div_children,
@@ -108,7 +89,16 @@ fn test_component_with_attributes_and_children() {
         } = &children[1]
         {
             assert_eq!(name.as_str(), "div");
-            assert_eq!(div_children.len(), 2);
+            // The children are wrapped in a Fragment (since there are 2 of them)
+            assert_eq!(div_children.len(), 1);
+            if let Element::Fragment {
+                children: fragment_children,
+            } = &div_children[0]
+            {
+                assert_eq!(fragment_children.len(), 2);
+            } else {
+                panic!("Expected Fragment element");
+            }
         }
     } else {
         panic!("Expected Tag element");
@@ -178,7 +168,7 @@ fn test_component_with_default_props() {
             }
         }
 
-        // Second child should be div with no children (default empty vec)
+        // Second child should be div with Empty element (from None children)
         if let Element::Tag {
             name,
             children: div_children,
@@ -186,7 +176,9 @@ fn test_component_with_default_props() {
         } = &children[1]
         {
             assert_eq!(name.as_str(), "div");
-            assert_eq!(div_children.len(), 0);
+            // None children becomes Element::Empty via IntoElement
+            assert_eq!(div_children.len(), 1);
+            assert!(div_children[0].is_empty());
         }
     } else {
         panic!("Expected Tag element");
