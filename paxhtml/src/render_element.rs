@@ -1,62 +1,79 @@
 use std::io::Write;
 
+use bumpalo::collections::String as BumpString;
+use bumpalo::collections::Vec as BumpVec;
+use bumpalo::Bump;
+
 use crate::{Attribute, Element};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(tag = "type"))]
 /// A renderable element in an HTML document.
 ///
 /// These are constructed from [`Element`]s using [`RenderElement::from_elements`].
 /// This will process the tree to remove any extraneous nodes during conversion.
-pub enum RenderElement {
+pub enum RenderElement<'bump> {
     /// A tag element.
     Tag {
         /// The name of the tag.
-        name: String,
+        name: BumpString<'bump>,
         /// The attributes of the tag.
-        attributes: Vec<Attribute>,
+        attributes: BumpVec<'bump, Attribute<'bump>>,
         /// The children of the tag.
-        children: Vec<RenderElement>,
+        children: BumpVec<'bump, RenderElement<'bump>>,
         /// Whether the tag is void.
         void: bool,
     },
     /// A text element.
     Text {
         /// The text of the element.
-        text: String,
+        text: BumpString<'bump>,
     },
     /// A raw element.
     Raw {
         /// The raw HTML of the element.
-        html: String,
+        html: BumpString<'bump>,
     },
 }
-impl RenderElement {
+impl<'bump> RenderElement<'bump> {
     /// Convert a list of [`Element`]s into a list of [`RenderElement`]s.
     ///
     /// This will process the tree to remove any extraneous nodes during conversion.
-    pub fn from_elements(elements: impl IntoIterator<Item = Element>) -> Vec<Self> {
-        elements
-            .into_iter()
-            .flat_map(|e| match e {
-                Element::Empty => vec![],
+    pub fn from_elements(
+        bump: &'bump Bump,
+        elements: impl IntoIterator<Item = Element<'bump>>,
+    ) -> BumpVec<'bump, Self> {
+        let mut result = BumpVec::new_in(bump);
+        for e in elements {
+            match e {
+                Element::Empty => {}
                 Element::Tag {
                     name,
                     attributes,
                     children,
                     void,
-                } => vec![Self::Tag {
-                    name,
-                    attributes,
-                    children: Self::from_elements(children),
-                    void,
-                }],
-                Element::Fragment { children } => Self::from_elements(children),
-                Element::Text { text } if text == "\n" => vec![],
-                Element::Text { text } => vec![Self::Text { text }],
-                Element::Raw { html } => vec![Self::Raw { html }],
-            })
-            .collect()
+                } => {
+                    result.push(Self::Tag {
+                        name,
+                        attributes,
+                        children: Self::from_elements(bump, children),
+                        void,
+                    });
+                }
+                Element::Fragment { children } => {
+                    result.extend(Self::from_elements(bump, children));
+                }
+                Element::Text { text } if text.as_str() == "\n" => {}
+                Element::Text { text } => {
+                    result.push(Self::Text { text });
+                }
+                Element::Raw { html } => {
+                    result.push(Self::Raw { html });
+                }
+            }
+        }
+        result
     }
 
     /// Write the element to a string.
@@ -76,15 +93,16 @@ impl RenderElement {
                 void,
             } => {
                 // start tag
-                write!(writer, "<{name}")?;
-                for Attribute { key, value } in attributes {
+                write!(writer, "<{}", name.as_str())?;
+                for Attribute { key, value } in attributes.iter() {
                     match value {
                         Some(value) => write!(
                             writer,
-                            " {key}=\"{}\"",
-                            html_escape::encode_quoted_attribute(value)
+                            " {}=\"{}\"",
+                            key.as_str(),
+                            html_escape::encode_quoted_attribute(value.as_str())
                         )?,
-                        None => write!(writer, " {key}")?,
+                        None => write!(writer, " {}", key.as_str())?,
                     }
                 }
                 write!(writer, ">")?;
@@ -99,7 +117,7 @@ impl RenderElement {
                     return Ok(());
                 }
 
-                let did_indent = Self::write_many(writer, children, depth + 1)?;
+                let did_indent = Self::write_many(writer, children.as_slice(), depth + 1)?;
 
                 // end tag
                 if did_indent {
@@ -108,11 +126,11 @@ impl RenderElement {
                         write!(writer, "  ")?;
                     }
                 }
-                write!(writer, "</{name}>")?;
+                write!(writer, "</{}>", name.as_str())?;
                 Ok(())
             }
             RenderElement::Text { text } => {
-                let text = html_escape::encode_text(text);
+                let text = html_escape::encode_text(text.as_str());
                 for (idx, line) in text.lines().enumerate() {
                     if idx > 0 {
                         writeln!(writer)?;
@@ -122,7 +140,7 @@ impl RenderElement {
                 Ok(())
             }
             RenderElement::Raw { html } => {
-                write!(writer, "{html}")?;
+                write!(writer, "{}", html.as_str())?;
                 Ok(())
             }
         }
@@ -133,7 +151,7 @@ impl RenderElement {
     /// Returns whether or not the result was indented.
     pub fn write_many(
         writer: &mut dyn Write,
-        elements: &[RenderElement],
+        elements: &[RenderElement<'bump>],
         depth: usize,
     ) -> std::io::Result<bool> {
         let should_indent = !elements.is_empty();
@@ -158,7 +176,7 @@ impl RenderElement {
     }
 
     /// Write a list of [`RenderElement`]s to a string.
-    pub fn write_many_to_string(elements: &[RenderElement]) -> std::io::Result<String> {
+    pub fn write_many_to_string(elements: &[RenderElement<'bump>]) -> std::io::Result<String> {
         let mut output = vec![];
         Self::write_many(&mut output, elements, 0)?;
         Ok(String::from_utf8(output).unwrap())
@@ -167,7 +185,7 @@ impl RenderElement {
     /// Get the tag name of the element if it is a [`Tag`].
     pub fn tag(&self) -> Option<&str> {
         match self {
-            RenderElement::Tag { name, .. } => Some(name),
+            RenderElement::Tag { name, .. } => Some(name.as_str()),
             _ => None,
         }
     }
@@ -197,13 +215,19 @@ impl RenderElement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{attr, builder::*};
+    use crate::builder::Builder;
 
     #[test]
     pub fn wont_indent_text_surrounded_by_tags() {
-        let element = h3([])([small([])("test "), text("tested"), small([])("!")]);
-        let render_elements = RenderElement::from_elements([element]);
-        let output = RenderElement::write_many_to_string(&render_elements).unwrap();
+        let bump = Bump::new();
+        let b = Builder::new(&bump);
+        let element = b.h3([])([
+            b.small([])(b.text("test ")),
+            b.text("tested"),
+            b.small([])(b.text("!")),
+        ]);
+        let render_elements = RenderElement::from_elements(&bump, [element]);
+        let output = RenderElement::write_many_to_string(render_elements.as_slice()).unwrap();
         assert_eq!(
             output,
             r#"<h3><small>test </small>tested<small>!</small></h3>"#.trim()
@@ -212,13 +236,15 @@ mod tests {
 
     #[test]
     pub fn wont_indent_inline_elements() {
+        let bump = Bump::new();
+        let b = Builder::new(&bump);
         let elements = [
-            text("test "),
-            a([attr(("href", "https://example.com"))])([text("tested")]),
-            text("!"),
+            b.text("test "),
+            b.a([b.attr(("href", "https://example.com"))])(b.text("tested")),
+            b.text("!"),
         ];
-        let render_elements = RenderElement::from_elements(elements);
-        let output = RenderElement::write_many_to_string(&render_elements).unwrap();
+        let render_elements = RenderElement::from_elements(&bump, elements);
+        let output = RenderElement::write_many_to_string(render_elements.as_slice()).unwrap();
         assert_eq!(output, r#"test <a href="https://example.com">tested</a>!"#);
     }
 }

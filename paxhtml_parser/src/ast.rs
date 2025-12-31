@@ -34,10 +34,7 @@ pub enum AstNode {
     /// A fragment containing multiple children without a wrapper element
     Fragment(Vec<AstNode>),
     /// An interpolated expression (macro only)
-    Expression {
-        body: TokenStream,
-        iterator: bool,
-    },
+    Expression { body: TokenStream, iterator: bool },
     /// Text content
     Text(String),
 }
@@ -46,9 +43,7 @@ impl AstNode {
     /// Check if this node is a custom component (starts with uppercase letter)
     pub fn is_custom_component(&self) -> bool {
         match self {
-            AstNode::Element { name, .. } => {
-                name.chars().next().is_some_and(|c| c.is_uppercase())
-            }
+            AstNode::Element { name, .. } => name.chars().next().is_some_and(|c| c.is_uppercase()),
             _ => false,
         }
     }

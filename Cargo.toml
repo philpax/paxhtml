@@ -3,6 +3,7 @@ members = ["paxhtml", "paxhtml_macro", "paxhtml_parser", "paxhtml_mlua", "paxhtm
 resolver = "2"
 
 [workspace.dependencies]
+bumpalo = { version = "3.16", features = ["collections"] }
 html-escape = "0.2.13"
 convert_case = "0.6"
 proc-macro2 = "1.0"

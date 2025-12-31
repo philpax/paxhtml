@@ -1,10 +1,12 @@
+use bumpalo::Bump;
 use paxhtml::{parse_html, Document};
 
 #[test]
 fn test_runtime_parse_simple_html() {
+    let bump = Bump::new();
     let html = r#"<div class="container"><p>"Hello, world!"</p></div>"#;
-    let element = parse_html(html).unwrap();
-    let doc = Document::new([element]);
+    let element = parse_html(&bump, html).unwrap();
+    let doc = Document::new(&bump, [element]);
     let output = doc.write_to_string().unwrap();
 
     assert!(output.contains(r#"<div class="container">"#));
@@ -13,9 +15,10 @@ fn test_runtime_parse_simple_html() {
 
 #[test]
 fn test_runtime_parse_nested_structure() {
+    let bump = Bump::new();
     let html = r#"<ul><li>"First"</li><li>"Second"</li><li>"Third"</li></ul>"#;
-    let element = parse_html(html).unwrap();
-    let doc = Document::new([element]);
+    let element = parse_html(&bump, html).unwrap();
+    let doc = Document::new(&bump, [element]);
     let output = doc.write_to_string().unwrap();
 
     assert!(output.contains("<ul>"));
@@ -26,9 +29,10 @@ fn test_runtime_parse_nested_structure() {
 
 #[test]
 fn test_runtime_parse_void_elements() {
+    let bump = Bump::new();
     let html = r#"<input r#type="text" placeholder="Enter name" />"#;
-    let element = parse_html(html).unwrap();
-    let doc = Document::new([element]);
+    let element = parse_html(&bump, html).unwrap();
+    let doc = Document::new(&bump, [element]);
     let output = doc.write_to_string().unwrap();
 
     // Check for the essential parts - void elements are rendered without self-closing slash
@@ -40,9 +44,10 @@ fn test_runtime_parse_void_elements() {
 
 #[test]
 fn test_runtime_parse_fragment() {
+    let bump = Bump::new();
     let html = r#"<><div>"First"</div><div>"Second"</div></>"#;
-    let element = parse_html(html).unwrap();
-    let doc = Document::new([element]);
+    let element = parse_html(&bump, html).unwrap();
+    let doc = Document::new(&bump, [element]);
     let output = doc.write_to_string().unwrap();
 
     assert!(output.contains("<div>First</div>"));
@@ -51,9 +56,10 @@ fn test_runtime_parse_fragment() {
 
 #[test]
 fn test_runtime_parse_attributes_without_values() {
+    let bump = Bump::new();
     let html = r#"<input disabled checked />"#;
-    let element = parse_html(html).unwrap();
-    let doc = Document::new([element]);
+    let element = parse_html(&bump, html).unwrap();
+    let doc = Document::new(&bump, [element]);
     let output = doc.write_to_string().unwrap();
 
     assert!(output.contains("disabled"));
@@ -62,10 +68,11 @@ fn test_runtime_parse_attributes_without_values() {
 
 #[test]
 fn test_runtime_parse_custom_element_name() {
+    let bump = Bump::new();
     // Custom elements (uppercase) should still be parsed as regular tags at runtime
     let html = r#"<MyComponent foo="bar">"content"</MyComponent>"#;
-    let element = parse_html(html).unwrap();
-    let doc = Document::new([element]);
+    let element = parse_html(&bump, html).unwrap();
+    let doc = Document::new(&bump, [element]);
     let output = doc.write_to_string().unwrap();
 
     // Custom components are left as regular HTML elements at runtime
@@ -76,8 +83,9 @@ fn test_runtime_parse_custom_element_name() {
 
 #[test]
 fn test_runtime_parse_rejects_interpolation() {
+    let bump = Bump::new();
     let html = r#"<div>{some_expr}</div>"#;
-    let result = parse_html(html);
+    let result = parse_html(&bump, html);
 
     // Interpolation syntax will cause a parse error at runtime
     assert!(result.is_err());

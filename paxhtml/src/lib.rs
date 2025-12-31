@@ -4,18 +4,40 @@
 //! Elements are created through either [builder] or [html], and placed in a [Document],
 //! which will implicitly convert them to [RenderElement]s for rendering. A HTML string
 //! can then be generated through [Document::write_to_string] or similar methods.
+//!
+//! All allocations are done through a bump allocator ([bumpalo::Bump]) which must be passed
+//! to all element-creating functions.
+//!
+//! # Example
+//!
+//! ```
+//! use paxhtml::{bumpalo::Bump, builder::Builder, html};
+//!
+//! let bump = Bump::new();
+//! let b = Builder::new(&bump);
+//! let element = html! { in &bump;
+//!     <div class="container">
+//!         <h1>"Hello, World!"</h1>
+//!     </div>
+//! };
+//! let doc = b.document([element]);
+//! let html_string = doc.write_to_string().unwrap();
+//! ```
 
 pub mod builder;
 pub mod util;
 
+// Re-export bumpalo for convenience
+pub use bumpalo;
+
 mod attribute;
-pub use attribute::{attr, Attribute, AttributeParseError};
+pub use attribute::{Attribute, AttributeParseError, IntoAttribute};
 
 mod document;
 pub use document::Document;
 
 mod element;
-pub use element::Element;
+pub use element::{DefaultIn, Element, IntoElement};
 
 #[cfg(feature = "parser")]
 mod eval;
@@ -24,6 +46,9 @@ pub use eval::{eval_node, parse_html, EvalError, ParseHtmlError};
 
 mod render_element;
 pub use render_element::RenderElement;
+
+mod owned;
+pub use owned::{OwnedAttribute, OwnedElement};
 
 mod routing;
 pub use routing::RoutePath;

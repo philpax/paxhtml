@@ -1,102 +1,169 @@
+use bumpalo::collections::String as BumpString;
+use bumpalo::collections::Vec as BumpVec;
+use bumpalo::Bump;
+
 use crate::Attribute;
 
 /// An element in an HTML document. This is optimised for authoring, and supports both
 /// [Element::Empty] and [Element::Fragment] for convenience.
 ///
 /// These will be removed when converted to [crate::RenderElement]s.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
-pub enum Element {
-    #[default]
+pub enum Element<'bump> {
     /// An empty element.
+    #[default]
     Empty,
     /// A tag element.
     Tag {
         /// The name of the tag.
-        name: String,
+        name: BumpString<'bump>,
         /// The attributes of the tag.
-        attributes: Vec<Attribute>,
+        attributes: BumpVec<'bump, Attribute<'bump>>,
         /// The children of the tag.
-        children: Vec<Element>,
+        children: BumpVec<'bump, Element<'bump>>,
         /// Whether the tag is void.
         void: bool,
     },
     /// A fragment element.
     Fragment {
         /// The children of the fragment.
-        children: Vec<Element>,
+        children: BumpVec<'bump, Element<'bump>>,
     },
     /// A text element.
     Text {
         /// The text of the element.
-        text: String,
+        text: BumpString<'bump>,
     },
     /// A raw element.
     Raw {
         /// The raw HTML of the element.
-        html: String,
+        html: BumpString<'bump>,
     },
 }
-impl From<String> for Element {
-    fn from(s: String) -> Self {
-        Element::Text { text: s }
+
+/// Trait for types that can provide a default value given a bump allocator.
+///
+/// This is used by the `html!` macro to support default prop values for custom components.
+/// Component props structs should implement this trait to allow omitting fields in the macro.
+///
+/// # Example
+///
+/// ```ignore
+/// struct MyComponentProps<'bump> {
+///     title: String,
+///     children: BumpVec<'bump, Element<'bump>>,
+/// }
+///
+/// impl<'bump> DefaultIn<'bump> for MyComponentProps<'bump> {
+///     fn default_in(bump: &'bump Bump) -> Self {
+///         Self {
+///             title: String::new(),
+///             children: BumpVec::new_in(bump),
+///         }
+///     }
+/// }
+/// ```
+pub trait DefaultIn<'bump> {
+    /// Create a default value using the given bump allocator.
+    fn default_in(bump: &'bump Bump) -> Self;
+}
+
+/// Trait for types that can be converted into an Element with a bump allocator.
+pub trait IntoElement<'bump> {
+    /// Convert this value into an Element using the given bump allocator.
+    fn into_element(self, bump: &'bump Bump) -> Element<'bump>;
+}
+impl<'bump> IntoElement<'bump> for Element<'bump> {
+    fn into_element(self, _bump: &'bump Bump) -> Element<'bump> {
+        self
     }
 }
-impl From<&str> for Element {
-    fn from(s: &str) -> Self {
-        s.to_string().into()
+impl<'bump> IntoElement<'bump> for &str {
+    fn into_element(self, bump: &'bump Bump) -> Element<'bump> {
+        Element::Text {
+            text: BumpString::from_str_in(self, bump),
+        }
     }
 }
-impl From<&String> for Element {
-    fn from(s: &String) -> Self {
-        s.clone().into()
+impl<'bump> IntoElement<'bump> for String {
+    fn into_element(self, bump: &'bump Bump) -> Element<'bump> {
+        Element::Text {
+            text: BumpString::from_str_in(&self, bump),
+        }
     }
 }
-impl From<Vec<Element>> for Element {
-    fn from(children: Vec<Element>) -> Self {
+impl<'bump> IntoElement<'bump> for &String {
+    fn into_element(self, bump: &'bump Bump) -> Element<'bump> {
+        Element::Text {
+            text: BumpString::from_str_in(self, bump),
+        }
+    }
+}
+impl<'bump, T: IntoElement<'bump>> IntoElement<'bump> for Option<T> {
+    fn into_element(self, bump: &'bump Bump) -> Element<'bump> {
+        match self {
+            Some(e) => e.into_element(bump),
+            None => Element::Empty,
+        }
+    }
+}
+impl<'bump, const N: usize> IntoElement<'bump> for [Element<'bump>; N] {
+    fn into_element(self, bump: &'bump Bump) -> Element<'bump> {
+        if N == 0 {
+            Element::Empty
+        } else if N == 1 {
+            self.into_iter().next().unwrap()
+        } else {
+            Element::Fragment {
+                children: BumpVec::from_iter_in(self, bump),
+            }
+        }
+    }
+}
+impl<'bump> Element<'bump> {
+    /// Create an element from an iterator of elements.
+    pub fn from_iter(
+        bump: &'bump Bump,
+        iter: impl IntoIterator<Item = Element<'bump>>,
+    ) -> Element<'bump> {
+        let children: BumpVec<'bump, Element<'bump>> = BumpVec::from_iter_in(iter, bump);
         if children.is_empty() {
             Element::Empty
         } else if children.len() == 1 {
-            children[0].clone()
+            children.into_iter().next().unwrap()
         } else {
             Element::Fragment { children }
         }
     }
-}
-impl From<&[Element]> for Element {
-    fn from(children: &[Element]) -> Self {
-        children.to_vec().into()
+
+    /// Create a text element.
+    pub fn text(bump: &'bump Bump, text: &str) -> Element<'bump> {
+        Element::Text {
+            text: BumpString::from_str_in(text, bump),
+        }
     }
-}
-impl<const N: usize> From<[Element; N]> for Element {
-    fn from(children: [Element; N]) -> Self {
-        children.to_vec().into()
+
+    /// Create a raw HTML element.
+    pub fn raw(bump: &'bump Bump, html: &str) -> Element<'bump> {
+        Element::Raw {
+            html: BumpString::from_str_in(html, bump),
+        }
     }
-}
-impl From<Option<Element>> for Element {
-    fn from(element: Option<Element>) -> Self {
-        element.unwrap_or(Element::Empty)
-    }
-}
-impl FromIterator<Element> for Element {
-    fn from_iter<I: IntoIterator<Item = Element>>(iter: I) -> Self {
-        iter.into_iter().collect::<Vec<_>>().into()
-    }
-}
-impl Element {
+
     /// Get the tag name of the element if it is a [`Tag`].
     pub fn tag(&self) -> Option<&str> {
         match self {
-            Element::Tag { name, .. } => Some(name),
+            Element::Tag { name, .. } => Some(name.as_str()),
             _ => None,
         }
     }
 
     /// Get the attributes of the element if it is a [`Tag`].
-    pub fn attrs(&self) -> Option<&[Attribute]> {
+    pub fn attrs(&self) -> Option<&[Attribute<'bump>]> {
         match self {
-            Element::Tag { attributes, .. } => Some(attributes),
+            Element::Tag { attributes, .. } => Some(attributes.as_slice()),
             _ => None,
         }
     }
@@ -104,13 +171,29 @@ impl Element {
     /// Get the inner text of the element.
     ///
     /// This will return an empty string if no inner text exists.
-    pub fn inner_text(&self) -> String {
+    pub fn inner_text(&self, bump: &'bump Bump) -> BumpString<'bump> {
         match self {
-            Element::Empty => String::new(),
-            Element::Tag { children, .. } => children.iter().map(Element::inner_text).collect(),
-            Element::Fragment { children } => children.iter().map(Element::inner_text).collect(),
-            Element::Text { text } => text.clone(),
-            Element::Raw { .. } => String::new(),
+            Element::Empty => BumpString::new_in(bump),
+            Element::Tag { children, .. } => {
+                let mut result = BumpString::new_in(bump);
+                for child in children.iter() {
+                    result.push_str(child.inner_text(bump).as_str());
+                }
+                result
+            }
+            Element::Fragment { children } => {
+                let mut result = BumpString::new_in(bump);
+                for child in children.iter() {
+                    result.push_str(child.inner_text(bump).as_str());
+                }
+                result
+            }
+            Element::Text { text } => {
+                let mut result = BumpString::new_in(bump);
+                result.push_str(text.as_str());
+                result
+            }
+            Element::Raw { .. } => BumpString::new_in(bump),
         }
     }
 
