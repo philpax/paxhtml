@@ -9,6 +9,8 @@ use crate::Attribute;
 ///
 /// These will be removed when converted to [crate::RenderElement]s.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(tag = "type"))]
 pub enum Element<'bump> {
     /// An empty element.
     #[default]

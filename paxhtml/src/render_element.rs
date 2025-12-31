@@ -7,6 +7,8 @@ use bumpalo::Bump;
 use crate::{Attribute, Element};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(tag = "type"))]
 /// A renderable element in an HTML document.
 ///
 /// These are constructed from [`Element`]s using [`RenderElement::from_elements`].

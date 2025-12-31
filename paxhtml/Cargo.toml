@@ -16,5 +16,5 @@ serde_json = { workspace = true, optional = true }
 default = ["macros", "parser"]
 macros = ["dep:paxhtml_macro", "dep:paxhtml_parser"]
 parser = ["dep:paxhtml_parser"]
-serde = ["dep:serde"]
+serde = ["dep:serde", "bumpalo/serde"]
 dump_tree = ["serde", "dep:serde_json"]

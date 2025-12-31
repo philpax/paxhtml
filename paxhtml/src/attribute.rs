@@ -3,6 +3,7 @@ use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// A key-value pair for an HTML attribute.
 pub struct Attribute<'bump> {
     /// The key of the attribute.

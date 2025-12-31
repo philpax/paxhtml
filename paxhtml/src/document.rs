@@ -6,6 +6,7 @@ use bumpalo::Bump;
 use crate::{builder::Builder, routing::RoutePath, Element, RenderElement};
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// A document is a collection of elements that will be rendered to HTML.
 pub struct Document<'bump> {
     /// The children of the document. [Element]s are converted to [RenderElement]s when the document
@@ -36,7 +37,22 @@ impl<'bump> Document<'bump> {
     }
 
     /// Write the document to a file in the given route.
-    pub fn write_to_route(&self, output_dir: &Path, route_path: &RoutePath) -> std::io::Result<()> {
+    ///
+    /// If `dump_tree` feature is enabled, the document's element tree will also be written
+    /// to a JSON file in the same directory.
+    pub fn write_to_route(
+        &self,
+        output_dir: &Path,
+        route_path: impl Into<RoutePath>,
+    ) -> std::io::Result<()> {
+        let route_path: RoutePath = route_path.into();
+        #[cfg(feature = "dump_tree")]
+        {
+            route_path
+                .clone()
+                .with_filename(route_path.filename().replace(".html", ".json"))
+                .write(output_dir, serde_json::to_string_pretty(&self).unwrap())?;
+        }
         self.write(&mut route_path.writer(output_dir)?)
     }
 
