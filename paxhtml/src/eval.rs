@@ -78,11 +78,12 @@ impl From<EvalError> for ParseHtmlError {
 /// # Example
 ///
 /// ```
-/// use paxhtml::{bumpalo::Bump, parse_html, Document};
+/// use paxhtml::{bumpalo::Bump, builder::Builder, parse_html};
 ///
 /// let bump = Bump::new();
+/// let b = Builder::new(&bump);
 /// let element = parse_html(&bump, r#"<div class="container"><p>"Hello, world!"</p></div>"#).unwrap();
-/// let doc = Document::new(&bump, [element]);
+/// let doc = b.document([element]);
 /// let html = doc.write_to_string();
 /// ```
 ///

@@ -11,15 +11,16 @@
 //! # Example
 //!
 //! ```
-//! use paxhtml::{bumpalo::Bump, html, Document};
+//! use paxhtml::{bumpalo::Bump, builder::Builder, html};
 //!
 //! let bump = Bump::new();
+//! let b = Builder::new(&bump);
 //! let element = html! { in &bump;
 //!     <div class="container">
 //!         <h1>"Hello, World!"</h1>
 //!     </div>
 //! };
-//! let doc = Document::new(&bump, [element]);
+//! let doc = b.document([element]);
 //! let html_string = doc.write_to_string().unwrap();
 //! ```
 
@@ -30,7 +31,7 @@ pub mod util;
 pub use bumpalo;
 
 mod attribute;
-pub use attribute::{attr, Attribute, AttributeParseError, IntoAttribute};
+pub use attribute::{Attribute, AttributeParseError, IntoAttribute};
 
 mod document;
 pub use document::Document;

@@ -72,11 +72,6 @@ impl<'bump> IntoAttribute<'bump> for (String, String) {
     }
 }
 
-/// Create an attribute from a value that implements [IntoAttribute].
-pub fn attr<'bump>(bump: &'bump Bump, value: impl IntoAttribute<'bump>) -> Attribute<'bump> {
-    value.into_attribute(bump)
-}
-
 /// Error type for attribute parsing failures
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttributeParseError {

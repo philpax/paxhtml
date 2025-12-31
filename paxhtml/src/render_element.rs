@@ -213,15 +213,16 @@ impl<'bump> RenderElement<'bump> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{attr, builder::*};
+    use crate::builder::Builder;
 
     #[test]
     pub fn wont_indent_text_surrounded_by_tags() {
         let bump = Bump::new();
-        let element = h3(&bump, [])([
-            small(&bump, [])(text(&bump, "test ")),
-            text(&bump, "tested"),
-            small(&bump, [])(text(&bump, "!")),
+        let b = Builder::new(&bump);
+        let element = b.h3([])([
+            b.small([])(b.text("test ")),
+            b.text("tested"),
+            b.small([])(b.text("!")),
         ]);
         let render_elements = RenderElement::from_elements(&bump, [element]);
         let output = RenderElement::write_many_to_string(render_elements.as_slice()).unwrap();
@@ -234,10 +235,11 @@ mod tests {
     #[test]
     pub fn wont_indent_inline_elements() {
         let bump = Bump::new();
+        let b = Builder::new(&bump);
         let elements = [
-            text(&bump, "test "),
-            a(&bump, [attr(&bump, ("href", "https://example.com"))])([text(&bump, "tested")]),
-            text(&bump, "!"),
+            b.text("test "),
+            b.a([b.attr(("href", "https://example.com"))])(b.text("tested")),
+            b.text("!"),
         ];
         let render_elements = RenderElement::from_elements(&bump, elements);
         let output = RenderElement::write_many_to_string(render_elements.as_slice()).unwrap();

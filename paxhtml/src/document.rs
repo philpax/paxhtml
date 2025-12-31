@@ -3,7 +3,7 @@ use std::path::Path;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump;
 
-use crate::{builder, routing::RoutePath, Element, RenderElement};
+use crate::{builder::Builder, routing::RoutePath, Element, RenderElement};
 
 #[derive(Debug)]
 /// A document is a collection of elements that will be rendered to HTML.
@@ -23,12 +23,10 @@ impl<'bump> Document<'bump> {
 
     /// Create a new document with a doctype declaration followed by the given element.
     ///
-    /// This is equivalent to `Document::new(bump, [doctype(bump, [attr(bump, "html")]), element])`.
+    /// This is equivalent to `Document::new(bump, [b.doctype([b.attr("html")]), element])`.
     pub fn new_with_doctype(bump: &'bump Bump, element: Element<'bump>) -> Self {
-        Self::new(
-            bump,
-            [builder::doctype(bump, [crate::attr(bump, "html")]), element],
-        )
+        let b = Builder::new(bump);
+        Self::new(bump, [b.doctype([b.attr("html")]), element])
     }
 
     /// Write the document to a writer.
@@ -53,19 +51,16 @@ impl<'bump> Document<'bump> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builder::*;
 
     #[test]
     fn test_inline_code() {
         let bump = Bump::new();
-        let input = Document::new(
-            &bump,
-            [p(&bump, [])([
-                text(&bump, "This is an example of "),
-                code(&bump, [])(text(&bump, "inline code")),
-                text(&bump, " in a paragraph."),
-            ])],
-        );
+        let b = Builder::new(&bump);
+        let input = b.document([b.p([])([
+            b.text("This is an example of "),
+            b.code([])(b.text("inline code")),
+            b.text(" in a paragraph."),
+        ])]);
 
         let output = input.write_to_string().unwrap();
         assert_eq!(
@@ -77,10 +72,8 @@ mod tests {
     #[test]
     fn test_empty_ul_with_tags_class() {
         let bump = Bump::new();
-        let input = Document::new(
-            &bump,
-            [ul(&bump, [crate::attr(&bump, ("class", "tags"))])([])],
-        );
+        let b = Builder::new(&bump);
+        let input = b.document([b.ul([b.attr(("class", "tags"))])([])]);
         let output = input.write_to_string().unwrap();
         assert_eq!(output, "<ul class=\"tags\"></ul>");
     }
@@ -88,7 +81,8 @@ mod tests {
     #[test]
     fn test_void_element() {
         let bump = Bump::new();
-        let input = Document::new(&bump, [br(&bump, [])]);
+        let b = Builder::new(&bump);
+        let input = b.document([b.br([])]);
         let output = input.write_to_string().unwrap();
         assert_eq!(output, "<br>");
     }
@@ -96,13 +90,11 @@ mod tests {
     #[test]
     fn should_indent_successive_p_tags_in_a_fragment() {
         let bump = Bump::new();
-        let input_elements = Document::new(
-            &bump,
-            [div(&bump, [])([
-                p(&bump, [])(text(&bump, "Hello")),
-                p(&bump, [])(text(&bump, "World")),
-            ])],
-        );
+        let b = Builder::new(&bump);
+        let input_elements = b.document([b.div([])([
+            b.p([])(b.text("Hello")),
+            b.p([])(b.text("World")),
+        ])]);
         let output = input_elements.write_to_string().unwrap();
         assert_eq!(output, "<div>\n  <p>Hello</p>\n  <p>World</p>\n</div>");
     }
@@ -110,10 +102,8 @@ mod tests {
     #[test]
     fn test_new_with_doctype() {
         let bump = Bump::new();
-        let input = Document::new_with_doctype(
-            &bump,
-            html(&bump, [])(body(&bump, [])(text(&bump, "Hello"))),
-        );
+        let b = Builder::new(&bump);
+        let input = b.document_with_doctype(b.html([])(b.body([])(b.text("Hello"))));
         let output = input.write_to_string().unwrap();
         assert_eq!(
             output,
