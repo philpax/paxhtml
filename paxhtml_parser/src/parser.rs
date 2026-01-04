@@ -3,7 +3,7 @@ use convert_case::{Case, Casing};
 use std::fmt;
 use syn::{
     parse::{Parse, ParseStream},
-    token, Expr, Ident, LitStr, Result as SynResult, Token,
+    token, Expr, Ident, Lit, LitStr, Result as SynResult, Token,
 };
 
 /// Error type for parsing HTML
@@ -62,8 +62,28 @@ fn parse_attribute(input: ParseStream) -> SynResult<AstAttribute> {
                 let expr = content.parse::<Expr>()?;
                 Some(AttributeValue::Expression(quote::quote! { #expr }))
             } else {
-                // Parse string literal
-                Some(AttributeValue::Literal(input.parse::<LitStr>()?.value()))
+                // Parse literal (string, integer, float, or bool)
+                let lit = input.parse::<Lit>()?;
+                let attr_value = match lit {
+                    Lit::Str(s) => AttributeValue::LiteralString(s.value()),
+                    Lit::Int(i) => {
+                        let value: i128 = i
+                            .base10_parse()
+                            .map_err(|_| input.error("Invalid integer literal"))?;
+                        AttributeValue::LiteralInt(value)
+                    }
+                    Lit::Float(f) => {
+                        let value: f64 = f
+                            .base10_parse()
+                            .map_err(|_| input.error("Invalid float literal"))?;
+                        AttributeValue::LiteralFloat(value)
+                    }
+                    Lit::Bool(b) => AttributeValue::LiteralBool(b.value()),
+                    _ => {
+                        return Err(input.error("Expected string, integer, float, or bool literal"))
+                    }
+                };
+                Some(attr_value)
             };
 
             Ok(AstAttribute::Named { name, value })
@@ -291,6 +311,136 @@ mod tests {
                     AstAttribute::Named { name, value } => {
                         assert_eq!(name, "disabled");
                         assert!(value.is_none());
+                    }
+                    _ => panic!("Expected named attribute"),
+                }
+            }
+            _ => panic!("Expected element"),
+        }
+    }
+
+    #[test]
+    fn test_parse_integer_attribute() {
+        let html = r#"<input tabindex=1 />"#;
+        let result = parse_html(html).unwrap();
+
+        match result {
+            AstNode::Element { attributes, .. } => {
+                assert_eq!(attributes.len(), 1);
+                match &attributes[0] {
+                    AstAttribute::Named { name, value } => {
+                        assert_eq!(name, "tabindex");
+                        match value {
+                            Some(AttributeValue::LiteralInt(v)) => assert_eq!(*v, 1),
+                            _ => panic!("Expected integer literal value"),
+                        }
+                    }
+                    _ => panic!("Expected named attribute"),
+                }
+            }
+            _ => panic!("Expected element"),
+        }
+    }
+
+    #[test]
+    fn test_parse_float_attribute() {
+        let html = r#"<div opacity=0.5 />"#;
+        let result = parse_html(html).unwrap();
+
+        match result {
+            AstNode::Element { attributes, .. } => {
+                assert_eq!(attributes.len(), 1);
+                match &attributes[0] {
+                    AstAttribute::Named { name, value } => {
+                        assert_eq!(name, "opacity");
+                        match value {
+                            Some(AttributeValue::LiteralFloat(v)) => {
+                                assert!((v - 0.5).abs() < f64::EPSILON)
+                            }
+                            _ => panic!("Expected float literal value"),
+                        }
+                    }
+                    _ => panic!("Expected named attribute"),
+                }
+            }
+            _ => panic!("Expected element"),
+        }
+    }
+
+    #[test]
+    fn test_parse_bool_attribute() {
+        let html = r#"<input data_active=true data_disabled=false />"#;
+        let result = parse_html(html).unwrap();
+
+        match result {
+            AstNode::Element { attributes, .. } => {
+                assert_eq!(attributes.len(), 2);
+                match &attributes[0] {
+                    AstAttribute::Named { name, value } => {
+                        assert_eq!(name, "data-active");
+                        match value {
+                            Some(AttributeValue::LiteralBool(v)) => assert!(*v),
+                            _ => panic!("Expected bool literal value"),
+                        }
+                    }
+                    _ => panic!("Expected named attribute"),
+                }
+                match &attributes[1] {
+                    AstAttribute::Named { name, value } => {
+                        assert_eq!(name, "data-disabled");
+                        match value {
+                            Some(AttributeValue::LiteralBool(v)) => assert!(!*v),
+                            _ => panic!("Expected bool literal value"),
+                        }
+                    }
+                    _ => panic!("Expected named attribute"),
+                }
+            }
+            _ => panic!("Expected element"),
+        }
+    }
+
+    #[test]
+    fn test_parse_mixed_literal_attributes() {
+        let html = r#"<input tabindex=0 r#type="text" maxlength=100 />"#;
+        let result = parse_html(html).unwrap();
+
+        match result {
+            AstNode::Element { attributes, .. } => {
+                assert_eq!(attributes.len(), 3);
+
+                // tabindex=0
+                match &attributes[0] {
+                    AstAttribute::Named { name, value } => {
+                        assert_eq!(name, "tabindex");
+                        match value {
+                            Some(AttributeValue::LiteralInt(v)) => assert_eq!(*v, 0),
+                            _ => panic!("Expected integer literal value"),
+                        }
+                    }
+                    _ => panic!("Expected named attribute"),
+                }
+
+                // type="text"
+                match &attributes[1] {
+                    AstAttribute::Named { name, value } => {
+                        assert_eq!(name, "type");
+                        match value {
+                            Some(AttributeValue::LiteralString(v)) => assert_eq!(v, "text"),
+                            _ => panic!("Expected string literal value"),
+                        }
+                    }
+                    _ => panic!("Expected named attribute"),
+                }
+
+                // maxlength=100
+                match &attributes[2] {
+                    AstAttribute::Named { name, value } => {
+                        assert_eq!(name, "maxlength");
+                        match value {
+                            Some(AttributeValue::LiteralInt(v)) => assert_eq!(*v, 100),
+                            _ => panic!("Expected integer literal value"),
+                        }
                     }
                     _ => panic!("Expected named attribute"),
                 }

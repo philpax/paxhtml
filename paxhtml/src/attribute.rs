@@ -2,21 +2,111 @@ use bumpalo::collections::String as BumpString;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Represents a typed attribute value.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
+pub enum AttributeValue<'bump> {
+    /// A string value.
+    String(BumpString<'bump>),
+    /// An integer value.
+    Int(i128),
+    /// A floating-point value.
+    Float(f64),
+    /// A boolean value.
+    Bool(bool),
+}
+
+impl<'bump> AttributeValue<'bump> {
+    /// Returns the value as a string slice if this is a String variant.
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            AttributeValue::String(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Convert the attribute value to its string representation for HTML output.
+    ///
+    /// This allocates a new string in the bump allocator for non-string variants.
+    pub fn to_str(&self, bump: &'bump Bump) -> BumpString<'bump> {
+        match self {
+            AttributeValue::String(s) => {
+                let mut result = BumpString::new_in(bump);
+                result.push_str(s.as_str());
+                result
+            }
+            AttributeValue::Int(i) => BumpString::from_str_in(&i.to_string(), bump),
+            AttributeValue::Float(f) => BumpString::from_str_in(&f.to_string(), bump),
+            AttributeValue::Bool(b) => BumpString::from_str_in(&b.to_string(), bump),
+        }
+    }
+
+    /// Returns the integer value if this is an Int variant.
+    pub fn as_int(&self) -> Option<i128> {
+        match self {
+            AttributeValue::Int(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    /// Returns the float value if this is a Float variant.
+    pub fn as_float(&self) -> Option<f64> {
+        match self {
+            AttributeValue::Float(f) => Some(*f),
+            _ => None,
+        }
+    }
+
+    /// Returns the boolean value if this is a Bool variant.
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            AttributeValue::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// A key-value pair for an HTML attribute.
 pub struct Attribute<'bump> {
     /// The key of the attribute.
     pub key: BumpString<'bump>,
     /// The value of the attribute.
-    pub value: Option<BumpString<'bump>>,
+    pub value: Option<AttributeValue<'bump>>,
 }
+
 impl<'bump> Attribute<'bump> {
-    /// Create a new attribute with a key and value.
+    /// Create a new attribute with a string key and value.
     pub fn new(bump: &'bump Bump, key: &str, value: &str) -> Self {
         Attribute {
             key: BumpString::from_str_in(key, bump),
-            value: Some(BumpString::from_str_in(value, bump)),
+            value: Some(AttributeValue::String(BumpString::from_str_in(value, bump))),
+        }
+    }
+
+    /// Create a new attribute with an integer value.
+    pub fn new_int(bump: &'bump Bump, key: &str, value: i128) -> Self {
+        Attribute {
+            key: BumpString::from_str_in(key, bump),
+            value: Some(AttributeValue::Int(value)),
+        }
+    }
+
+    /// Create a new attribute with a float value.
+    pub fn new_float(bump: &'bump Bump, key: &str, value: f64) -> Self {
+        Attribute {
+            key: BumpString::from_str_in(key, bump),
+            value: Some(AttributeValue::Float(value)),
+        }
+    }
+
+    /// Create a new attribute with a boolean value.
+    pub fn new_bool(bump: &'bump Bump, key: &str, value: bool) -> Self {
+        Attribute {
+            key: BumpString::from_str_in(key, bump),
+            value: Some(AttributeValue::Bool(value)),
         }
     }
 
@@ -28,12 +118,27 @@ impl<'bump> Attribute<'bump> {
         }
     }
 
-    /// Create an attribute with an optional value.
+    /// Create an attribute with an optional string value.
     pub fn with_optional_value(bump: &'bump Bump, key: &str, value: Option<&str>) -> Self {
         Attribute {
             key: BumpString::from_str_in(key, bump),
-            value: value.map(|v| BumpString::from_str_in(v, bump)),
+            value: value.map(|v| AttributeValue::String(BumpString::from_str_in(v, bump))),
         }
+    }
+
+    /// Get the value as a string slice, if present and is a String variant.
+    ///
+    /// For non-string values, this returns `None`. Use `value_to_str()` to get
+    /// the string representation of any value type.
+    pub fn value_as_str(&self) -> Option<&str> {
+        self.value.as_ref().and_then(|v| v.as_str())
+    }
+
+    /// Get the string representation of the value for HTML output.
+    ///
+    /// This allocates a new string in the bump allocator for non-string variants.
+    pub fn value_to_str(&self, bump: &'bump Bump) -> Option<BumpString<'bump>> {
+        self.value.as_ref().map(|v| v.to_str(bump))
     }
 }
 
@@ -164,7 +269,7 @@ impl<'bump> Attribute<'bump> {
     /// let attributes = Attribute::parse_from_str(&bump, r#"id="my-id" class="my-class my-class-2" some-attr"#).unwrap();
     /// assert_eq!(attributes.len(), 3);
     /// assert_eq!(attributes[0].key.as_str(), "id");
-    /// assert_eq!(attributes[0].value.as_ref().map(|s| s.as_str()), Some("my-id"));
+    /// assert_eq!(attributes[0].value_as_str(), Some("my-id"));
     /// ```
     ///
     /// ## Errors
@@ -356,10 +461,7 @@ mod tests {
         let attributes = Attribute::parse_from_str(&bump, "id=\"test\"").unwrap();
         assert_eq!(attributes.len(), 1);
         assert_eq!(attributes[0].key.as_str(), "id");
-        assert_eq!(
-            attributes[0].value.as_ref().map(|s| s.as_str()),
-            Some("test")
-        );
+        assert_eq!(attributes[0].value_as_str(), Some("test"));
     }
 
     #[test]
@@ -369,15 +471,9 @@ mod tests {
             Attribute::parse_from_str(&bump, "id=\"test\" class=\"btn btn-primary\"").unwrap();
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0].key.as_str(), "id");
-        assert_eq!(
-            attributes[0].value.as_ref().map(|s| s.as_str()),
-            Some("test")
-        );
+        assert_eq!(attributes[0].value_as_str(), Some("test"));
         assert_eq!(attributes[1].key.as_str(), "class");
-        assert_eq!(
-            attributes[1].value.as_ref().map(|s| s.as_str()),
-            Some("btn btn-primary")
-        );
+        assert_eq!(attributes[1].value_as_str(), Some("btn btn-primary"));
     }
 
     #[test]
@@ -396,17 +492,11 @@ mod tests {
             Attribute::parse_from_str(&bump, "id=\"test\" disabled class=\"btn\"").unwrap();
         assert_eq!(attributes.len(), 3);
         assert_eq!(attributes[0].key.as_str(), "id");
-        assert_eq!(
-            attributes[0].value.as_ref().map(|s| s.as_str()),
-            Some("test")
-        );
+        assert_eq!(attributes[0].value_as_str(), Some("test"));
         assert_eq!(attributes[1].key.as_str(), "disabled");
         assert_eq!(attributes[1].value, None);
         assert_eq!(attributes[2].key.as_str(), "class");
-        assert_eq!(
-            attributes[2].value.as_ref().map(|s| s.as_str()),
-            Some("btn")
-        );
+        assert_eq!(attributes[2].value_as_str(), Some("btn"));
     }
 
     #[test]
@@ -451,10 +541,7 @@ mod tests {
         let attributes = Attribute::parse_from_str(&bump, "id='test'").unwrap();
         assert_eq!(attributes.len(), 1);
         assert_eq!(attributes[0].key.as_str(), "id");
-        assert_eq!(
-            attributes[0].value.as_ref().map(|s| s.as_str()),
-            Some("test")
-        );
+        assert_eq!(attributes[0].value_as_str(), Some("test"));
     }
 
     #[test]
@@ -464,15 +551,9 @@ mod tests {
             Attribute::parse_from_str(&bump, "  id=\"test\"  \n  class=\"btn\"  ").unwrap();
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0].key.as_str(), "id");
-        assert_eq!(
-            attributes[0].value.as_ref().map(|s| s.as_str()),
-            Some("test")
-        );
+        assert_eq!(attributes[0].value_as_str(), Some("test"));
         assert_eq!(attributes[1].key.as_str(), "class");
-        assert_eq!(
-            attributes[1].value.as_ref().map(|s| s.as_str()),
-            Some("btn")
-        );
+        assert_eq!(attributes[1].value_as_str(), Some("btn"));
     }
 
     #[test]
@@ -535,11 +616,8 @@ mod tests {
         let attributes = Attribute::parse_from_str(&bump, r#"width ="150" height="80""#).unwrap();
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0].key.as_str(), "width");
-        assert_eq!(
-            attributes[0].value.as_ref().map(|s| s.as_str()),
-            Some("150")
-        );
+        assert_eq!(attributes[0].value_as_str(), Some("150"));
         assert_eq!(attributes[1].key.as_str(), "height");
-        assert_eq!(attributes[1].value.as_ref().map(|s| s.as_str()), Some("80"));
+        assert_eq!(attributes[1].value_as_str(), Some("80"));
     }
 }

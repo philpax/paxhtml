@@ -90,3 +90,28 @@ fn test_runtime_parse_rejects_interpolation() {
     // Interpolation syntax will cause a parse error at runtime
     assert!(result.is_err());
 }
+
+#[test]
+fn test_runtime_parse_integer_attributes() {
+    let bump = Bump::new();
+    let html = r#"<input tabindex=1 maxlength=100 />"#;
+    let element = parse_html(&bump, html).unwrap();
+    let doc = Document::new(&bump, [element]);
+    let output = doc.write_to_string().unwrap();
+
+    assert_eq!(output, r#"<input tabindex="1" maxlength="100">"#);
+}
+
+#[test]
+fn test_runtime_parse_mixed_attributes() {
+    let bump = Bump::new();
+    let html = r#"<input r#type="text" tabindex=0 placeholder="Name" />"#;
+    let element = parse_html(&bump, html).unwrap();
+    let doc = Document::new(&bump, [element]);
+    let output = doc.write_to_string().unwrap();
+
+    assert_eq!(
+        output,
+        r#"<input type="text" tabindex="0" placeholder="Name">"#
+    );
+}

@@ -2,8 +2,8 @@ use bumpalo::collections::String as BumpString;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump;
 
-use crate::{Attribute, Element};
-use paxhtml_parser::{AstAttribute, AstNode, AttributeValue, ParseError};
+use crate::{Attribute, AttributeValue, Element};
+use paxhtml_parser::{AstAttribute, AstNode, AttributeValue as AstAttributeValue, ParseError};
 use std::fmt;
 
 /// Error type for AST evaluation
@@ -149,8 +149,13 @@ fn eval_attribute<'bump>(
         AstAttribute::Named { name, value } => {
             let val = match value {
                 None => None,
-                Some(AttributeValue::Literal(lit)) => Some(BumpString::from_str_in(lit, bump)),
-                Some(AttributeValue::Expression(_)) => {
+                Some(AstAttributeValue::LiteralString(s)) => {
+                    Some(AttributeValue::String(BumpString::from_str_in(s, bump)))
+                }
+                Some(AstAttributeValue::LiteralInt(i)) => Some(AttributeValue::Int(*i)),
+                Some(AstAttributeValue::LiteralFloat(f)) => Some(AttributeValue::Float(*f)),
+                Some(AstAttributeValue::LiteralBool(b)) => Some(AttributeValue::Bool(*b)),
+                Some(AstAttributeValue::Expression(_)) => {
                     return Err(EvalError::ExpressionAttributeNotSupported)
                 }
             };
@@ -187,10 +192,7 @@ mod tests {
                 assert!(!void);
                 assert_eq!(attributes.len(), 1);
                 assert_eq!(attributes[0].key.as_str(), "class");
-                assert_eq!(
-                    attributes[0].value.as_ref().map(|s| s.as_str()),
-                    Some("container")
-                );
+                assert_eq!(attributes[0].value_as_str(), Some("container"));
                 assert_eq!(children.len(), 1);
                 match &children[0] {
                     Element::Text { text } => assert_eq!(text.as_str(), "Hello"),

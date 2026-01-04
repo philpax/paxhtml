@@ -8,7 +8,7 @@ use crate::Attribute;
 /// [Element::Empty] and [Element::Fragment] for convenience.
 ///
 /// These will be removed when converted to [crate::RenderElement]s.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
 pub enum Element<'bump> {
@@ -164,6 +164,17 @@ impl<'bump> Element<'bump> {
     pub fn attrs(&self) -> Option<&[Attribute<'bump>]> {
         match self {
             Element::Tag { attributes, .. } => Some(attributes.as_slice()),
+            _ => None,
+        }
+    }
+
+    /// Get an attribute by name if this is a [`Tag`].
+    ///
+    /// Returns `Some(&Attribute)` if the element is a tag and has an attribute with the given name,
+    /// or `None` if the element is not a tag or doesn't have the attribute.
+    pub fn attr(&self, name: &str) -> Option<&Attribute<'bump>> {
+        match self {
+            Element::Tag { attributes, .. } => attributes.iter().find(|a| a.key.as_str() == name),
             _ => None,
         }
     }

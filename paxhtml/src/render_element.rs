@@ -4,9 +4,9 @@ use bumpalo::collections::String as BumpString;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump;
 
-use crate::{Attribute, Element};
+use crate::{Attribute, AttributeValue, Element};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
 /// A renderable element in an HTML document.
@@ -96,12 +96,20 @@ impl<'bump> RenderElement<'bump> {
                 write!(writer, "<{}", name.as_str())?;
                 for Attribute { key, value } in attributes.iter() {
                     match value {
-                        Some(value) => write!(
-                            writer,
-                            " {}=\"{}\"",
-                            key.as_str(),
-                            html_escape::encode_quoted_attribute(value.as_str())
-                        )?,
+                        Some(value) => {
+                            write!(writer, " {}=\"", key.as_str())?;
+                            match value {
+                                AttributeValue::String(s) => write!(
+                                    writer,
+                                    "{}",
+                                    html_escape::encode_quoted_attribute(s.as_str())
+                                )?,
+                                AttributeValue::Int(i) => write!(writer, "{}", i)?,
+                                AttributeValue::Float(f) => write!(writer, "{}", f)?,
+                                AttributeValue::Bool(b) => write!(writer, "{}", b)?,
+                            }
+                            write!(writer, "\"")?;
+                        }
                         None => write!(writer, " {}", key.as_str())?,
                     }
                 }

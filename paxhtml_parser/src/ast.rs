@@ -16,9 +16,30 @@ pub enum AstAttribute {
 #[derive(Debug, Clone)]
 pub enum AttributeValue {
     /// A string literal value
-    Literal(String),
+    LiteralString(String),
+    /// An integer literal value
+    LiteralInt(i128),
+    /// A floating-point literal value
+    LiteralFloat(f64),
+    /// A boolean literal value
+    LiteralBool(bool),
     /// An expression (macro only)
     Expression(TokenStream),
+}
+
+impl AttributeValue {
+    /// Convert the attribute value to its string representation
+    pub fn to_string_value(&self) -> String {
+        match self {
+            AttributeValue::LiteralString(s) => s.clone(),
+            AttributeValue::LiteralInt(i) => i.to_string(),
+            AttributeValue::LiteralFloat(f) => f.to_string(),
+            AttributeValue::LiteralBool(b) => b.to_string(),
+            AttributeValue::Expression(_) => {
+                panic!("Cannot convert expression to string at runtime")
+            }
+        }
+    }
 }
 
 /// Represents a node in the HTML AST

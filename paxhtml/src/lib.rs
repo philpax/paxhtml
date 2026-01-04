@@ -31,7 +31,7 @@ pub mod util;
 pub use bumpalo;
 
 mod attribute;
-pub use attribute::{Attribute, AttributeParseError, IntoAttribute};
+pub use attribute::{Attribute, AttributeParseError, AttributeValue, IntoAttribute};
 
 mod document;
 pub use document::Document;

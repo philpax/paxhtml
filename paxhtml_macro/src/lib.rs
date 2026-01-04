@@ -76,7 +76,10 @@ fn ast_node_to_tokens_with_bump(bump: &Expr, node: &AstNode, tokens: &mut TokenS
 
                         let value_expr = match value {
                             Some(AttributeValue::Expression(expr)) => quote! { #expr.into() },
-                            Some(AttributeValue::Literal(lit)) => quote! { #lit.into() },
+                            Some(AttributeValue::LiteralString(s)) => quote! { #s.into() },
+                            Some(AttributeValue::LiteralInt(i)) => quote! { #i.into() },
+                            Some(AttributeValue::LiteralFloat(f)) => quote! { #f.into() },
+                            Some(AttributeValue::LiteralBool(b)) => quote! { #b.into() },
                             None => quote! { true.into() },
                         };
 
@@ -122,8 +125,17 @@ fn ast_node_to_tokens_with_bump(bump: &Expr, node: &AstNode, tokens: &mut TokenS
                                             &(#expr).to_string()
                                         ));
                                     },
-                                    Some(AttributeValue::Literal(lit)) => quote! {
-                                        __attrs.push(paxhtml::Attribute::new(#bump, #name, #lit));
+                                    Some(AttributeValue::LiteralString(s)) => quote! {
+                                        __attrs.push(paxhtml::Attribute::new(#bump, #name, #s));
+                                    },
+                                    Some(AttributeValue::LiteralInt(i)) => quote! {
+                                        __attrs.push(paxhtml::Attribute::new_int(#bump, #name, #i));
+                                    },
+                                    Some(AttributeValue::LiteralFloat(f)) => quote! {
+                                        __attrs.push(paxhtml::Attribute::new_float(#bump, #name, #f));
+                                    },
+                                    Some(AttributeValue::LiteralBool(b)) => quote! {
+                                        __attrs.push(paxhtml::Attribute::new_bool(#bump, #name, #b));
                                     },
                                     None => quote! {
                                         __attrs.push(paxhtml::Attribute::boolean(#bump, #name));
