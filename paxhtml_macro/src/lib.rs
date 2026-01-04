@@ -97,9 +97,12 @@ fn ast_node_to_tokens_with_bump(bump: &Expr, node: &AstNode, tokens: &mut TokenS
 
                 // Use struct update syntax with default_in for unspecified fields
                 tokens.extend(quote! {
-                    #component_ident(#bump, #props_ident {
-                        #(#field_inits,)*
-                        ..paxhtml::DefaultIn::default_in(#bump)
+                    #component_ident(#bump, {
+                        #[allow(clippy::needless_update)]
+                        #props_ident {
+                            #(#field_inits,)*
+                            ..paxhtml::DefaultIn::default_in(#bump)
+                        }
                     })
                 });
             } else {
