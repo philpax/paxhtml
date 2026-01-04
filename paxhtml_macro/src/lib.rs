@@ -105,7 +105,7 @@ fn ast_node_to_tokens_with_bump(bump: &Expr, node: &AstNode, tokens: &mut TokenS
             } else {
                 // Regular HTML element
                 let attrs_code = if attributes.is_empty() {
-                    quote! { bumpalo::collections::Vec::new_in(#bump) }
+                    quote! { paxhtml::bumpalo::collections::Vec::new_in(#bump) }
                 } else {
                     let mut attr_statements = Vec::new();
                     for attr in attributes {
@@ -138,21 +138,21 @@ fn ast_node_to_tokens_with_bump(bump: &Expr, node: &AstNode, tokens: &mut TokenS
                         }
                     }
                     quote! {{
-                        let mut __attrs = bumpalo::collections::Vec::new_in(#bump);
+                        let mut __attrs = paxhtml::bumpalo::collections::Vec::new_in(#bump);
                         #(#attr_statements)*
                         __attrs
                     }}
                 };
 
                 let children_code = if children.is_empty() {
-                    quote! { bumpalo::collections::Vec::new_in(#bump) }
+                    quote! { paxhtml::bumpalo::collections::Vec::new_in(#bump) }
                 } else {
                     let children_tokens: Vec<_> = children
                         .iter()
                         .map(|c| AstNodeWithBump { bump, node: c })
                         .collect();
                     quote! {{
-                        let mut __children = bumpalo::collections::Vec::new_in(#bump);
+                        let mut __children = paxhtml::bumpalo::collections::Vec::new_in(#bump);
                         #(__children.push(#children_tokens);)*
                         __children
                     }}
@@ -161,7 +161,7 @@ fn ast_node_to_tokens_with_bump(bump: &Expr, node: &AstNode, tokens: &mut TokenS
                 let name_str = name.as_str();
                 tokens.extend(quote! {
                     paxhtml::Element::Tag {
-                        name: bumpalo::collections::String::from_str_in(#name_str, #bump),
+                        name: paxhtml::bumpalo::collections::String::from_str_in(#name_str, #bump),
                         attributes: #attrs_code,
                         children: #children_code,
                         void: #void,
@@ -175,7 +175,7 @@ fn ast_node_to_tokens_with_bump(bump: &Expr, node: &AstNode, tokens: &mut TokenS
                 .map(|c| AstNodeWithBump { bump, node: c })
                 .collect();
             tokens.extend(quote! {{
-                let mut __children = bumpalo::collections::Vec::new_in(#bump);
+                let mut __children = paxhtml::bumpalo::collections::Vec::new_in(#bump);
                 #(__children.push(#children_tokens);)*
                 paxhtml::Element::Fragment { children: __children }
             }});
@@ -194,7 +194,7 @@ fn ast_node_to_tokens_with_bump(bump: &Expr, node: &AstNode, tokens: &mut TokenS
         AstNode::Text(text) => {
             tokens.extend(quote! {
                 paxhtml::Element::Text {
-                    text: bumpalo::collections::String::from_str_in(#text, #bump)
+                    text: paxhtml::bumpalo::collections::String::from_str_in(#text, #bump)
                 }
             });
         }
