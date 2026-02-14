@@ -1,4 +1,4 @@
-use paxhtml_parser::{AstAttribute, AstNode, AttributeValue, SynAstNode};
+use paxhtml_parser::{AstAttribute, AstNode, AttributeValue, AstNodeParser};
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, ToTokens};
@@ -12,7 +12,7 @@ fn is_custom_component(name: &str) -> bool {
 /// Input format: `in <allocator>; <html>`
 struct HtmlInput {
     allocator: Expr,
-    node: SynAstNode,
+    node: AstNodeParser,
 }
 impl Parse for HtmlInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
@@ -22,7 +22,7 @@ impl Parse for HtmlInput {
         input.parse::<Token![;]>()?;
 
         // Parse the HTML node
-        let node = input.parse::<SynAstNode>()?;
+        let node = input.parse::<AstNodeParser>()?;
 
         Ok(HtmlInput { allocator, node })
     }

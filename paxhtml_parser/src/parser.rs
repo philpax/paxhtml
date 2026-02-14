@@ -28,14 +28,15 @@ impl From<syn::Error> for ParseError {
     }
 }
 
-/// Wrapper for parsing AstNode from syn
-pub struct SynAstNode(pub AstNode);
+/// Wrapper for parsing an [AstNode] from a token stream.
+pub struct AstNodeParser(pub AstNode);
 
-impl Parse for SynAstNode {
+impl Parse for AstNodeParser {
     fn parse(input: ParseStream) -> SynResult<Self> {
-        Ok(SynAstNode(parse_node(input)?))
+        Ok(AstNodeParser(parse_node(input)?))
     }
 }
+
 
 fn parse_attribute(input: ParseStream) -> SynResult<AstAttribute> {
     if input.peek(token::Brace) {
@@ -93,117 +94,125 @@ fn parse_attribute(input: ParseStream) -> SynResult<AstAttribute> {
     }
 }
 
+/// The parsed opening portion of a tag: name, attributes, and whether it is void (self-closing).
+struct TagHead {
+    name: String,
+    attributes: Vec<AstAttribute>,
+    void: bool,
+}
+
+/// Parse the tag name, attributes, and closing `>` or `/>`.
+/// Assumes `<` has already been consumed.
+fn parse_tag_head(input: ParseStream) -> SynResult<TagHead> {
+    let name = input.parse::<Ident>()?.to_string();
+    let name = name.strip_prefix("r#").unwrap_or(&name).to_string();
+
+    let mut attributes = Vec::new();
+    while !input.peek(Token![>]) && !input.peek(Token![/]) {
+        attributes.push(parse_attribute(input)?);
+    }
+
+    let void = if input.peek(Token![/]) {
+        input.parse::<Token![/]>()?;
+        input.parse::<Token![>]>()?;
+        true
+    } else {
+        input.parse::<Token![>]>()?;
+        false
+    };
+
+    Ok(TagHead {
+        name,
+        attributes,
+        void,
+    })
+}
+
+fn parse_children(input: ParseStream) -> SynResult<Vec<AstNode>> {
+    let mut children = Vec::new();
+    while !input.peek(Token![<]) || !input.peek2(Token![/]) {
+        if input.peek(token::Brace) || (input.peek(Token![#]) && input.peek2(token::Brace)) {
+            // Parse interpolated Rust expression
+            let iterator = if input.peek(Token![#]) {
+                input.parse::<Token![#]>()?;
+                true
+            } else {
+                false
+            };
+            let content;
+            syn::braced!(content in input);
+            let expr = content.parse::<Expr>()?;
+            children.push(AstNode::Expression {
+                body: quote::quote! { #expr },
+                iterator,
+            });
+        } else if input.peek(Token![<]) {
+            // Parse nested element
+            children.push(parse_node(input)?);
+        } else {
+            // Parse text content
+            let text = input.parse::<LitStr>()?.value();
+            children.push(AstNode::Text(text));
+        }
+
+        if input.is_empty() {
+            break;
+        }
+    }
+    Ok(children)
+}
+
 fn parse_node(input: ParseStream) -> SynResult<AstNode> {
     if input.peek(token::Lt) {
         // Parse element
         input.parse::<Token![<]>()?;
 
-        enum TagType {
-            Fragment,
-            Name(String),
-        }
+        // Check for fragment: `<>...</>`
+        if input.peek(Token![>]) {
+            input.parse::<Token![>]>()?;
+            let children = parse_children(input)?;
 
-        impl TagType {
-            pub fn is_fragment(&self) -> bool {
-                matches!(self, TagType::Fragment)
-            }
-            pub fn unwrap_name_as_ref(&self) -> &str {
-                match self {
-                    TagType::Name(name) => name,
-                    TagType::Fragment => panic!("Fragment cannot have a name"),
-                }
-            }
-        }
-
-        let tag = if input.peek(Token![>]) {
-            TagType::Fragment
-        } else {
-            let name = input.parse::<Ident>()?.to_string();
-            TagType::Name(name.strip_prefix("r#").unwrap_or(&name).to_string())
-        };
-
-        // Parse attributes
-        let mut attributes = Vec::new();
-        while !input.peek(Token![>]) && !input.peek(Token![/]) {
-            attributes.push(parse_attribute(input)?);
-        }
-
-        // Handle void elements
-        let void = if input.peek(Token![/]) {
+            // Parse closing `</>`
+            input.parse::<Token![<]>()?;
             input.parse::<Token![/]>()?;
             input.parse::<Token![>]>()?;
-            true
-        } else {
-            input.parse::<Token![>]>()?;
-            false
-        };
+
+            return Ok(AstNode::Fragment(children));
+        }
+
+        // Named element
+        let TagHead {
+            name,
+            attributes,
+            void,
+        } = parse_tag_head(input)?;
 
         if void {
-            match tag {
-                TagType::Name(name) => {
-                    return Ok(AstNode::Element {
-                        name,
-                        attributes,
-                        children: vec![],
-                        void: true,
-                    });
-                }
-                _ => return Err(input.error("Fragment cannot be void")),
-            }
+            return Ok(AstNode::Element {
+                name,
+                attributes,
+                children: vec![],
+                void: true,
+            });
         }
 
-        // Parse children
-        let mut children = Vec::new();
-        while !input.peek(Token![<]) || !input.peek2(Token![/]) {
-            if input.peek(token::Brace) || (input.peek(Token![#]) && input.peek2(token::Brace)) {
-                // Parse interpolated Rust expression
-                let iterator = if input.peek(Token![#]) {
-                    input.parse::<Token![#]>()?;
-                    true
-                } else {
-                    false
-                };
-                let content;
-                syn::braced!(content in input);
-                let expr = content.parse::<Expr>()?;
-                children.push(AstNode::Expression {
-                    body: quote::quote! { #expr },
-                    iterator,
-                });
-            } else if input.peek(Token![<]) {
-                // Parse nested element
-                children.push(parse_node(input)?);
-            } else {
-                // Parse text content
-                let text = input.parse::<LitStr>()?.value();
-                children.push(AstNode::Text(text));
-            }
+        let children = parse_children(input)?;
 
-            if input.is_empty() {
-                break;
-            }
-        }
-
-        // Parse closing tag
+        // Parse closing tag `</name>`
         input.parse::<Token![<]>()?;
         input.parse::<Token![/]>()?;
-        if !tag.is_fragment() {
-            let close_name = input.parse::<Ident>()?.to_string();
-            if close_name != tag.unwrap_name_as_ref() {
-                return Err(input.error("Mismatched opening and closing tags"));
-            }
+        let close_name = input.parse::<Ident>()?.to_string();
+        if close_name != name {
+            return Err(input.error("Mismatched opening and closing tags"));
         }
         input.parse::<Token![>]>()?;
 
-        match tag {
-            TagType::Fragment => Ok(AstNode::Fragment(children)),
-            TagType::Name(name) => Ok(AstNode::Element {
-                name,
-                attributes,
-                children,
-                void: false,
-            }),
-        }
+        Ok(AstNode::Element {
+            name,
+            attributes,
+            children,
+            void: false,
+        })
     } else if input.peek(token::Brace) || (input.peek(Token![#]) && input.peek2(token::Brace)) {
         // Parse interpolated Rust expression
         let iterator = if input.peek(Token![#]) {
@@ -225,10 +234,27 @@ fn parse_node(input: ParseStream) -> SynResult<AstNode> {
     }
 }
 
-/// Parse an HTML string into an AST using syn::parse_str
+/// Parse an HTML string into an AST.
 pub fn parse_html(html: &str) -> Result<AstNode, ParseError> {
-    let node: SynAstNode = syn::parse_str(html)?;
+    let node: AstNodeParser = syn::parse_str(html)?;
     Ok(node.0)
+}
+
+/// Wrapper for parsing just an opening tag from a token stream.
+struct OpeningTagParser(TagHead);
+
+impl Parse for OpeningTagParser {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        input.parse::<Token![<]>()?;
+        Ok(OpeningTagParser(parse_tag_head(input)?))
+    }
+}
+
+/// Parse an opening HTML tag (e.g. `<CityPoster image="foo.png">` or `<br />`)
+/// and return the tag name, attributes, and whether it's void (self-closing).
+pub fn parse_opening_tag(html: &str) -> Result<(String, Vec<AstAttribute>, bool), ParseError> {
+    let OpeningTagParser(tag) = syn::parse_str(html)?;
+    Ok((tag.name, tag.attributes, tag.void))
 }
 
 #[cfg(test)]

@@ -140,6 +140,31 @@ pub fn eval_node<'bump>(bump: &'bump Bump, node: &AstNode) -> Result<Element<'bu
     }
 }
 
+/// Parse an opening tag (e.g. `<CityPoster image="foo.png">`) and construct
+/// an Element with the given children.
+///
+/// This is useful for parsing custom paired elements from markdown where the
+/// opening tag, body content, and closing tag arrive as separate nodes.
+pub fn parse_element_with_children<'bump>(
+    bump: &'bump Bump,
+    opening_tag: &str,
+    children: impl IntoIterator<Item = Element<'bump>>,
+) -> Result<Element<'bump>, ParseHtmlError> {
+    let (name, ast_attrs, void) = paxhtml_parser::parse_opening_tag(opening_tag)?;
+    let mut attributes = BumpVec::new_in(bump);
+    for attr in &ast_attrs {
+        attributes.push(eval_attribute(bump, attr)?);
+    }
+    let mut child_vec = BumpVec::new_in(bump);
+    child_vec.extend(children);
+    Ok(Element::Tag {
+        name: BumpString::from_str_in(&name, bump),
+        attributes,
+        children: child_vec,
+        void,
+    })
+}
+
 /// Convert an AST attribute to a runtime Attribute
 fn eval_attribute<'bump>(
     bump: &'bump Bump,

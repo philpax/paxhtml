@@ -42,7 +42,7 @@ pub use element::{DefaultIn, Element, IntoElement};
 #[cfg(feature = "parser")]
 mod eval;
 #[cfg(feature = "parser")]
-pub use eval::{eval_node, parse_html, EvalError, ParseHtmlError};
+pub use eval::{eval_node, parse_element_with_children, parse_html, EvalError, ParseHtmlError};
 
 mod render_element;
 pub use render_element::RenderElement;
@@ -55,4 +55,4 @@ pub use paxhtml_macro::html;
 
 // Re-export parser types for convenience
 #[cfg(feature = "parser")]
-pub use paxhtml_parser::{parse_html as parse_html_ast, AstNode, ParseError};
+pub use paxhtml_parser::{parse_html as parse_html_ast, parse_opening_tag, AstNode, ParseError};
