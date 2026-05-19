@@ -14,11 +14,9 @@ pub fn slugify(s: &str) -> String {
                 prev_dash = false;
                 result.push(c);
             }
-            ' ' | '-' => {
-                if !prev_dash && !result.is_empty() {
-                    prev_dash = true;
-                    result.push('-');
-                }
+            ' ' | '-' if !prev_dash && !result.is_empty() => {
+                prev_dash = true;
+                result.push('-');
             }
             _ => {}
         }
